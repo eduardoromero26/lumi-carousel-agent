@@ -14,7 +14,7 @@ import type { Asset } from './run.js';
 // Some hosts (Mixkit, Openverse) hang over IPv6 on this network: IPv4 first.
 setDefaultResultOrder('ipv4first');
 import { Run, type Brief } from './run.js';
-import { backfill, calibrationReport, judgedVotes, learningVotes, listCarousels, rawTaste, saveCarousel, saveLearningVote, saveVote, taste, votesOf } from './db.js';
+import { backfill, calibrationReport, judgedVotes, learningVotes, listCarousels, rawTaste, saveCarousel, saveLearningVote, saveVote, starsOf, taste, votesOf } from './db.js';
 import { library } from './learned.js';
 import { failureKinds } from './metrics.js';
 import { batchReport, batchSummaries, enqueue, failuresReport, historyRows, isPaused, lessons, markFailed, markFinished, markRunning, nextWaiting, queueItems, removeWaiting, savedLists, setPaused, type QueueItem } from './queue.js';
@@ -145,13 +145,15 @@ const server = http.createServer(async (req, res) => {
       return json(res, 202, run.summary());
     }
 
-    // POST /api/runs/:id/vote {target: "carousel" | "reel" | "slide:N", value: 1 | -1 | 0, note?: what is wrong}
+    // POST /api/runs/:id/vote {target: "carousel" | "reel" | "slide:N", value: 1 | -1 | 0, stars?: 1-5 (carousel only), note?: what is wrong}
     if (req.method === 'POST' && parts[3] === 'vote') {
       if (!run) return json(res, 404, { error: 'Run not found' });
-      const { target, value, note } = (await readJson(req)) as { target?: string; value?: number; note?: unknown };
-      if (!target || !/^(carousel|reel|slide:\d+)$/.test(target) || ![1, -1, 0].includes(Number(value))) return json(res, 400, { error: 'Bad vote' });
-      saveVote(run, target, Number(value), typeof note === 'string' ? note : undefined);
-      return json(res, 200, votesOf(run.id));
+      const { target, value, stars, note } = (await readJson(req)) as { target?: string; value?: number; stars?: unknown; note?: unknown };
+      const rated = stars === undefined || stars === null ? undefined : Number(stars);
+      if (!target || !/^(carousel|reel|slide:\d+)$/.test(target)) return json(res, 400, { error: 'Bad vote' });
+      if (rated === undefined ? ![1, -1, 0].includes(Number(value)) : target !== 'carousel' || ![1, 2, 3, 4, 5].includes(rated)) return json(res, 400, { error: 'Bad vote' });
+      saveVote(run, target, Number(value ?? 0), typeof note === 'string' ? note : undefined, rated);
+      return json(res, 200, { votes: votesOf(run.id), stars: starsOf(run.id) });
     }
 
     // POST /api/runs/:id/slides/:n/edit {feedback}

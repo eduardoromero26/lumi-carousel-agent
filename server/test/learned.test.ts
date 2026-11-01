@@ -22,7 +22,7 @@ test('puts each thing learned on its shelf with its evidence', () => {
     stats: tasteStats([...votes(1, 3, { composition: 'window' }), ...votes(-1, 2, { personality: 'bold' }), ...votes(1, 1, { device: 'pill' })]),
     votes: judged,
     calibration: calibration(judged),
-    batches: [{ batch: 'v1', voted: 10, liked: 3 }],
+    batches: [{ batch: 'v1', voted: 10, liked: 3, stars: 2.75, rated: 4 }],
     failures: failureKinds([row]),
     lessons: new Map([['check:whole_subject', 'The lint measures the subject box.'], ['check:brand', 'Templates place the logo.']]),
     learned: new Map([['taste:personality=bold', { value: -1, note: 'bold was fine, the photos were bad' }]]),
@@ -41,6 +41,6 @@ test('puts each thing learned on its shelf with its evidence', () => {
     ['Whole subject (critic)', 'seen 2 times · 2.00 per carousel in v1'],
     ['Brand (critic)', 'not seen in the queue'],
   ]);
-  assert.equal(shelf('quality').cards[0].title, 'v1: 30 %');
+  assert.equal(shelf('quality').cards[0].title, 'v1: 30 % · 2.8 ★');
   assert.deepEqual(shelf('references').cards, []);
 });

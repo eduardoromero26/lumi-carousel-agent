@@ -105,15 +105,22 @@ class Api {
   }
 
   // The owner's vote on a carousel ("carousel"), a slide ("slide:2") or the reel ("reel"):
-  // 1 likes, -1 dislikes, 0 takes it back; the note is what's wrong. Returns the post's votes.
-  static Future<Map<String, int>> vote(String runId, String target, int value, {String? note}) async {
+  // 1 likes, -1 dislikes, 0 takes it back; stars (1-5, the carousel only) set the like
+  // themselves; the note is what's wrong. Returns the post's votes and stars.
+  static Future<({Map<String, int> votes, int? stars})> vote(String runId, String target, int value, {int? stars, String? note}) async {
     final res = await http.post(
       Uri.parse('$apiUrl/api/runs/$runId/vote'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'target': target, 'value': value, if (note != null && note.trim().isNotEmpty) 'note': note.trim()}),
+      body: jsonEncode({
+        'target': target,
+        'value': value,
+        'stars': ?stars,
+        if (note != null && note.trim().isNotEmpty) 'note': note.trim(),
+      }),
     );
     if (res.statusCode != 200) throw Exception('Error ${res.statusCode}');
-    return (jsonDecode(res.body) as Map<String, dynamic>).cast<String, int>();
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    return (votes: (body['votes'] as Map<String, dynamic>).cast<String, int>(), stars: body['stars'] as int?);
   }
 
   // What the votes say about each design choice.

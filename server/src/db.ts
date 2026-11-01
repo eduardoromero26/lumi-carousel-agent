@@ -3,7 +3,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { hashtagList, Run } from './run.js';
-import { noteId, tasteId, type LearningVote } from './learned.js';
+import { noteId, tasteId, type Batch, type LearningVote } from './learned.js';
 import { calibration, featuresOf, tasteStats, type Judged, type Stat, type Verdict, type Vote } from './taste.js';
 import { lookOf, type Look } from './variety.js';
 
@@ -38,6 +38,11 @@ db.exec(`CREATE TABLE IF NOT EXISTS votes (
 const voteColumns = (db.prepare(`PRAGMA table_info(votes)`).all() as { name: string }[]).map((c) => c.name);
 if (!voteColumns.includes('note')) db.exec(`ALTER TABLE votes ADD COLUMN note TEXT`);
 if (!voteColumns.includes('critic')) db.exec(`ALTER TABLE votes ADD COLUMN critic TEXT`);
+// 1 to 5 on a whole carousel. 4-5 count as a like, 1-2 as a dislike, 3 is kept with value 0
+// and stays out of the taste and the critic's calibration.
+if (!voteColumns.includes('stars')) db.exec(`ALTER TABLE votes ADD COLUMN stars INTEGER`);
+
+export const starsValue = (stars: number) => (stars >= 4 ? 1 : stars <= 2 ? -1 : 0);
 
 const upsert = db.prepare(`INSERT INTO carousels (id, status, business, url, created_at, updated_at, slides, has_reel, cost, post)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -66,29 +71,37 @@ export function recentLooks(exceptRun: string, limit = 6): Look[] {
 // Finished carousels, newest first, with the owner's votes.
 export function listCarousels(): unknown[] {
   const rows = db.prepare(`SELECT id, post FROM carousels WHERE status = 'done' AND slides > 0 ORDER BY created_at DESC`).all() as { id: string; post: string }[];
-  return rows.map((r) => ({ ...JSON.parse(r.post), ...(config.reels ? {} : { reel: null, reelCover: null }), votes: votesOf(r.id) }));
+  return rows.map((r) => ({ ...JSON.parse(r.post), ...(config.reels ? {} : { reel: null, reelCover: null }), votes: votesOf(r.id), stars: starsOf(r.id) }));
 }
 
-// 1 likes, -1 dislikes, 0 takes the vote back. The note is what the owner says is wrong.
-export function saveVote(run: Run, target: string, value: number, note?: string): void {
-  if (value === 0) {
+// 1 likes, -1 dislikes, 0 takes the vote back; stars (on the carousel) set the value
+// themselves. The note is what the owner says is wrong.
+export function saveVote(run: Run, target: string, value: number, note?: string, stars?: number): void {
+  if (stars !== undefined) value = starsValue(stars);
+  else if (value === 0) {
     db.prepare(`DELETE FROM votes WHERE run_id = ? AND target = ?`).run(run.id, target);
     return;
   }
   const verdict = criticVerdict(run, target);
   db.prepare(
-    `INSERT INTO votes (run_id, target, value, features, at, note, critic) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO votes (run_id, target, value, features, at, note, critic, stars) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(run_id, target) DO UPDATE SET value = excluded.value, features = excluded.features, at = excluded.at,
-       note = excluded.note, critic = excluded.critic`,
+       note = excluded.note, critic = excluded.critic, stars = excluded.stars`,
   ).run(
     run.id,
     target,
-    value > 0 ? 1 : -1,
+    Math.sign(value),
     JSON.stringify(featuresOf(run, target)),
     new Date().toISOString(),
     note?.trim().slice(0, 600) || null,
     verdict ? JSON.stringify(verdict) : null,
+    stars ?? null,
   );
+}
+
+export function starsOf(runId: string): number | null {
+  const row = db.prepare(`SELECT stars FROM votes WHERE run_id = ? AND target = 'carousel'`).get(runId) as { stars: number | null } | undefined;
+  return row?.stars ?? null;
 }
 
 // What the critic said when the owner voted: on a slide, whether the kept version was
@@ -114,7 +127,7 @@ export function judgedVotes(): Judged[] {
   const rows = db
     .prepare(
       `SELECT v.run_id, v.target, v.value, v.note, v.critic, v.at, c.business FROM votes v
-       LEFT JOIN carousels c ON c.id = v.run_id ORDER BY v.at DESC`,
+       LEFT JOIN carousels c ON c.id = v.run_id WHERE v.value != 0 ORDER BY v.at DESC`,
     )
     .all() as { run_id: string; target: string; value: number; note: string | null; critic: string | null; at: string; business: string | null }[];
   return rows.map((r) => ({
@@ -128,21 +141,22 @@ export function judgedVotes(): Judged[] {
   }));
 }
 
-// The critic against the owner, and the owner's likes per queue batch: the share of
-// carousels the owner liked is the quality a batch reached.
+// The critic against the owner, and per queue batch the share of carousels the owner
+// liked (4-5 stars or 👍) and the average stars: the quality a batch reached.
 export function calibrationReport() {
   const votes = judgedVotes();
   const batches = db
     .prepare(
-      `SELECT COALESCE(q.batch, 'made by hand') AS batch, COUNT(*) AS voted, SUM(v.value > 0) AS liked FROM votes v
+      `SELECT COALESCE(q.batch, 'made by hand') AS batch, COUNT(*) AS voted, SUM(v.value > 0) AS liked,
+         AVG(v.stars) AS stars, COUNT(v.stars) AS rated FROM votes v
        LEFT JOIN queue q ON q.run_id = v.run_id WHERE v.target = 'carousel' GROUP BY 1 ORDER BY MAX(v.at) DESC`,
     )
-    .all() as { batch: string; voted: number; liked: number }[];
+    .all() as Batch[];
   return { ...calibration(votes), batches };
 }
 
 export function votesOf(runId: string): Record<string, number> {
-  const rows = db.prepare(`SELECT target, value FROM votes WHERE run_id = ?`).all(runId) as { target: string; value: number }[];
+  const rows = db.prepare(`SELECT target, value FROM votes WHERE run_id = ? AND value != 0`).all(runId) as { target: string; value: number }[];
   return Object.fromEntries(rows.map((r) => [r.target, r.value]));
 }
 
@@ -173,7 +187,7 @@ export function saveLearningVote(id: string, value: number, note?: string): void
 
 // Every vote, as the stats of each design choice.
 export function rawTaste(): Stat[] {
-  const rows = db.prepare(`SELECT value, features FROM votes`).all() as { value: number; features: string }[];
+  const rows = db.prepare(`SELECT value, features FROM votes WHERE value != 0`).all() as { value: number; features: string }[];
   return tasteStats(rows.map((r) => ({ value: r.value > 0 ? 1 : -1, features: JSON.parse(r.features) }) as Vote));
 }
 

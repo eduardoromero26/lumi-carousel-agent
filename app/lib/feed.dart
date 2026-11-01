@@ -130,6 +130,7 @@ class _PostCardState extends State<PostCard> {
   bool reel = false;
   bool more = false;
   late Map<String, int> votes = ((widget.post['votes'] as Map?) ?? {}).cast<String, int>();
+  late int? stars = widget.post['stars'] as int?;
 
   // Tapping the same thumb again takes the vote back. A dislike asks what's wrong: the
   // critic learns from those words what it let through.
@@ -140,9 +141,29 @@ class _PostCardState extends State<PostCard> {
       note = await _askWhatsWrong(context, target);
       if (note == null) return;
     }
+    await _save(target, next, note: note);
+  }
+
+  // Tapping the same star again takes the rating back. Under 4 asks what's missing.
+  Future<void> rate(int value) async {
+    if (stars == value) return _save('carousel', 0);
+    String? note;
+    if (value <= 3) {
+      note = await _askWhatsWrong(context, 'carousel', stars: value);
+      if (note == null) return;
+    }
+    await _save('carousel', 0, stars: value, note: note);
+  }
+
+  Future<void> _save(String target, int value, {int? stars, String? note}) async {
     try {
-      final saved = await Api.vote(widget.post['id'] as String, target, next, note: note);
-      if (mounted) setState(() => votes = saved);
+      final saved = await Api.vote(widget.post['id'] as String, target, value, stars: stars, note: note);
+      if (mounted) {
+        setState(() {
+          votes = saved.votes;
+          this.stars = saved.stars;
+        });
+      }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
@@ -296,7 +317,7 @@ class _PostCardState extends State<PostCard> {
                 style: const TextStyle(color: _muted, fontSize: 12),
               ),
             ),
-            _Thumbs(label: 'Carousel', value: votes['carousel'], onVote: (v) => vote('carousel', v)),
+            _Stars(value: stars, onRate: rate),
             TextButton(
               onPressed: () => web.window.location.href = '/?run=${p['id']}',
               child: const Text("See the agents' work"),
@@ -308,14 +329,41 @@ class _PostCardState extends State<PostCard> {
   }
 }
 
+// The whole carousel from 1 to 5: 4-5 count as a like, 1-2 as a dislike.
+class _Stars extends StatelessWidget {
+  const _Stars({required this.value, required this.onRate});
+  final int? value;
+  final ValueChanged<int> onRate;
+
+  @override
+  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
+        for (var i = 1; i <= 5; i++)
+          InkResponse(
+            onTap: () => onRate(i),
+            radius: 16,
+            child: Tooltip(
+              message: '$i of 5',
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 6),
+                child: Icon(
+                  (value ?? 0) >= i ? Icons.star_rounded : Icons.star_outline_rounded,
+                  size: 22,
+                  color: (value ?? 0) >= i ? const Color(0xFFF5A524) : const Color(0xFFC7C7C7),
+                ),
+              ),
+            ),
+          ),
+      ]);
+}
+
 // Null when the owner cancels the dislike; an empty note still counts as a dislike.
-Future<String?> _askWhatsWrong(BuildContext context, String target) {
+Future<String?> _askWhatsWrong(BuildContext context, String target, {int? stars}) {
   final text = TextEditingController();
   final what = target == 'carousel' ? 'this carousel' : target == 'reel' ? 'this reel' : target.replaceFirst('slide:', 'slide ');
   return showDialog<String>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: Text("What's wrong with $what?"),
+      title: Text(stars == null ? "What's wrong with $what?" : '$stars ★ · What would make it a 5?'),
       content: SizedBox(
         width: 460,
         child: TextField(
@@ -331,7 +379,7 @@ Future<String?> _askWhatsWrong(BuildContext context, String target) {
       ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(dialogContext, text.text), child: const Text('Dislike')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, text.text), child: Text(stars == null ? 'Dislike' : 'Rate')),
       ],
     ),
   ).whenComplete(text.dispose);

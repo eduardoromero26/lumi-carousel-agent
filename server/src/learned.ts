@@ -9,6 +9,7 @@ import type { calibration, Judged, Stat } from './taste.js';
 export type Card = { id?: string; title: string; text: string; evidence: string; tone: 'good' | 'bad' | 'info'; at?: string; vote?: 1 | -1; feedback?: string | null };
 export type Shelf = { id: string; title: string; about: string; cards: Card[] };
 export type LearningVote = { value: 1 | -1; note: string | null };
+export type Batch = { batch: string; voted: number; liked: number; stars: number | null; rated: number };
 
 export const tasteId = (s: Stat) => `taste:${s.key}=${s.value}`;
 export const noteId = (v: Judged) => `note:${v.runId}:${v.target}`;
@@ -18,7 +19,7 @@ type Input = {
   stats: Stat[];
   votes: Judged[];
   calibration: ReturnType<typeof calibration>;
-  batches: { batch: string; voted: number; liked: number }[];
+  batches: Batch[];
   failures: ReturnType<typeof failureKinds>;
   lessons: Map<string, string>;
   learned: Map<string, LearningVote>;
@@ -100,10 +101,10 @@ export function library({ stats, votes, calibration: cal, batches, failures, les
     {
       id: 'quality',
       title: 'Quality',
-      about: 'The share of carousels you liked in each batch: the number each change to the agents has to beat.',
+      about: 'The share of carousels you liked (4-5 stars or 👍) and the average stars in each batch: the numbers each change to the agents has to beat.',
       cards: batches.map((b) => ({
-        title: `${b.batch}: ${Math.round((b.liked / b.voted) * 100)} %`,
-        text: `You liked ${b.liked} of the ${b.voted} carousels you voted.`,
+        title: `${b.batch}: ${Math.round((b.liked / b.voted) * 100)} %${b.stars !== null ? ` · ${b.stars.toFixed(1)} ★` : ''}`,
+        text: `You liked ${b.liked} of the ${b.voted} carousels you voted${b.rated ? `; ${b.rated} rated with stars` : ''}.`,
         evidence: `${b.voted} votes`,
         tone: b.liked / b.voted >= 0.6 ? 'good' : 'info',
       })),

@@ -99,7 +99,9 @@ export async function cutOut(run: Run, photo: Photo, subject: string): Promise<P
     const { rename } = await import('node:fs/promises');
     await rename(`${file}.tmp.png`, file);
   });
-  const cut: Photo = { id, path: file, cutout: true, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
+  const foot = Math.max(1, Math.round(h * 0.01));
+  const grounded = alpha.subarray((h - foot) * w).some((v) => v > 0);
+  const cut: Photo = { id, path: file, cutout: true, grounded, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
   run.photos = [...run.photos.filter((p) => p.id !== id), cut];
   return cut;
 }

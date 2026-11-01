@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import sharp, { type Sharp } from 'sharp';
 import { SLIDE } from './config.js';
-import { contrast, luminance, paletteFor, type DesignSystem, type Layout } from './design.js';
+import { contrast, cutsOut, luminance, paletteFor, type DesignSystem, type Layout } from './design.js';
 import type { Gimp } from './gimp.js';
 import type { Asset, Photo, Run, SlidePlan } from './run.js';
 
@@ -272,6 +272,50 @@ function fitWhole(img: { width: number; height: number }, region: Rect, keep: Re
   return { x: place(x, w, region.x1, rw), y: place(y, h, region.y1, rh), w, h };
 }
 
+// Covering a region around a focus (0..1 of the photo).
+function coverAt(img: { width: number; height: number }, region: Rect, focus = { x: 0.5, y: 0.5 }): Fit {
+  const rw = region.x2 - region.x1;
+  const rh = region.y2 - region.y1;
+  const scale = Math.max(rw / img.width, rh / img.height);
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  return { x: clamp(Math.round(region.x1 + rw / 2 - focus.x * w), region.x2 - w, region.x1), y: clamp(Math.round(region.y1 + rh / 2 - focus.y * h), region.y2 - h, region.y1), w, h };
+}
+
+// The photo in the area from the slide's top to `bottom`, cut with a hard edge that
+// rises `slant` px to the right, and an accent stripe 18 px under that edge.
+async function edgePhoto(file: string, frame: Fit, bottom: number, slant: number, out: string, stripeOut: string, color: string): Promise<Rect> {
+  const vis = { x1: Math.max(frame.x, 0), y1: Math.max(frame.y, 0), x2: Math.min(frame.x + frame.w, W), y2: Math.min(frame.y + frame.h, bottom) };
+  const shown = await sharp(file)
+    .rotate()
+    .resize(frame.w, frame.h, { fit: 'fill' })
+    .extract({ left: vis.x1 - frame.x, top: vis.y1 - frame.y, width: vis.x2 - vis.x1, height: vis.y2 - vis.y1 })
+    .png()
+    .toBuffer();
+  const edge = (h: number, fill: string) =>
+    Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${h}"><polygon points="0,0 ${W},0 ${W},${h - slant} 0,${h}" fill="${fill}"/></svg>`);
+  await sharp({ create: { width: W, height: bottom, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([
+      { input: shown, left: vis.x1, top: vis.y1 },
+      { input: edge(bottom, '#000'), blend: 'dest-in' },
+    ])
+    .png()
+    .toFile(out);
+  await sharp(edge(bottom + 18, color)).png().toFile(stripeOut);
+  return { ...vis, y2: Math.min(vis.y2, bottom - slant) };
+}
+
+// A big accent circle behind a cutout, kept off the text above it.
+async function disc(file: string, color: string, product: Rect, top: number): Promise<void> {
+  const pw = product.x2 - product.x1;
+  const ph = product.y2 - product.y1;
+  const d = Math.round(Math.min(W - 2 * M, Math.max(pw * 1.15, ph * 0.8)));
+  const cx = (product.x1 + product.x2) / 2;
+  const cy = Math.max(top + d / 2, product.y1 + ph * 0.45);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><circle cx="${Math.round(cx)}" cy="${Math.round(cy)}" r="${Math.round(d / 2)}" fill="${color}"/></svg>`;
+  await sharp(Buffer.from(svg)).png().toFile(file);
+}
+
 // A product's own pixels (`content`, 0..1 of the photo) contained and centered in `box`.
 function contain(img: { width: number; height: number }, box: Rect, content: Rect, pad: number, photoScale = 1): Fit {
   const bw = box.x2 - box.x1;
@@ -370,6 +414,8 @@ export type Built = {
   photoFrame?: Fit;
   textBand: 'top' | 'bottom' | 'middle' | 'under';
   split: boolean;
+  // How the slide really came out, which the variety rules count (variety.ts).
+  shape: Shape;
   card?: Rect;
   // On the slide: the product's own pixels (cutouts) and what must stay whole (subject, faces).
   product?: Rect;
@@ -384,6 +430,8 @@ export type Built = {
   align: 'center' | 'left';
 };
 
+export type Shape = 'text' | 'card' | 'cutout' | 'split' | 'window' | 'photo_top' | 'stacked' | 'overlay';
+
 type Part = { kind: 'number' | 'eyebrow' | 'headline' | 'body' | 'swipe' | 'button'; name: string; w: number; h: number; y: number; top: number };
 
 // Builds one slide from its template in the GIMP image already open (a blank slide).
@@ -395,7 +443,9 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
   const layout: Layout = slide.layout ?? (photo ? 'photo_band' : 'poster');
   // In a set of real photos the text goes on top and a studio product takes the photo's frame.
   const banded = layout !== 'cta' && bandSkeleton(run);
-  const inCard = !!photo && !photo.backdrop && ((!!photo.cutout && !banded) || layout === 'product' || layout === 'hero' || layout === 'cta');
+  // The cutout composition: the subject cut out of its photo, standing on the color block.
+  const cutPoster = !!photo?.cutout && !photo.matte && cutsOut(system, layout);
+  const inCard = !!photo && !photo.backdrop && !cutPoster && ((!!photo.cutout && !banded) || layout === 'product' || layout === 'hero' || layout === 'cta');
   // Loose: a transparent product straight on the ground, no card (the brand's way, or the hero).
   const loose = inCard && !!photo?.cutout && !photo.matte && (system.products === 'loose' || layout === 'hero');
   const left = system.align === 'left';
@@ -417,6 +467,9 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
   const underline = system.device === 'underline';
   const dims = photo ? await size(photo.path) : { width: 1, height: 1 };
   const keep = photo && !photo.cutout && !photo.backdrop ? keepBox(input.avoid) : undefined;
+  // A hard edge may crop a body, never a face; lively brands get it slanted.
+  const faceKeep = photo && !photo.cutout && !photo.backdrop ? keepBox(input.faces) : undefined;
+  const slant = system.personality === 'bold' || system.personality === 'friendly' || system.personality === 'modern' ? 96 : 0;
 
   let textScale = 1;
   for (let attempt = 0; ; attempt++) {
@@ -433,6 +486,17 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
     let region: Rect | undefined;
     let fits = true;
     let windowed = false;
+    let edged = false;
+    // The photo on top with a hard edge, the text on the solid ground below.
+    const edge = () => {
+      split = true;
+      edged = true;
+      textBand = 'bottom';
+      y0 = bottomSafe - total;
+      region = { x1: 0, y1: 0, x2: W, y2: y0 - 64 };
+      fits = region.y2 - slant >= (layout === 'cover' ? 600 : 540);
+      frame = faceKeep ? fitWhole(dims, region, faceKeep, tweaks.photoScale ?? 1) : coverAt(dims, region, input.focus);
+    };
     if (!photo) {
       const area = heroLogo ? [560, bottomSafe] : [topSafe, bottomSafe];
       fits = total <= area[1] - area[0];
@@ -447,12 +511,35 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
       card = { x1: M, y1: topSafe + 10, x2: W - M, y2: topSafe + 10 + cardH };
       y0 = card.y2 + gap;
       textBand = 'under';
+    } else if (cutPoster) {
+      // The text on the ground at the top, the subject big below it: cut at the waist it
+      // stands on the slide's bottom edge, whole it stands a little above it with a shadow.
+      split = true;
+      textBand = 'top';
+      y0 = topSafe;
+      const foot = logo && !heroLogo && system.logoPosition === 'bottom_center' ? logoY - 24 : H;
+      const grounded = !!photo.grounded && foot === H;
+      region = { x1: 40, y1: y0 + total + 36, x2: W - 40, y2: grounded ? H : foot - 40 };
+      fits = region.y2 - region.y1 >= (layout === 'cover' ? 620 : 560);
+      frame = contain(dims, region, photo.content ?? FULL, 0, tweaks.photoScale ?? 1);
+      frame.y = region.y2 - frame.h;
+      if (grounded) {
+        // Already cut at the bottom, it can grow and bleed off the foot: the head stays
+        // where the area starts, the body is cropped by the slide's edge like in an ad.
+        const grow = clamp((W * 0.78) / frame.w, 1, 1.6);
+        const cx = frame.x + frame.w / 2;
+        frame = { w: Math.round(frame.w * grow), h: Math.round(frame.h * grow), x: 0, y: region.y1 };
+        frame.x = Math.round(cx - frame.w / 2);
+      }
     } else if (photo.backdrop) {
       frame = cover(dims, input.focus);
       // Only the stacked set keeps its text on top; the other compositions read at the bottom.
       textBand = tweaks.band === 'top' || (banded && system.composition === 'stacked' && tweaks.band !== 'bottom') ? 'top' : 'bottom';
       y0 = textBand === 'top' ? topSafe : bottomSafe - total;
       fits = total <= H * 0.55;
+    } else if ((system.composition === 'split' || system.composition === 'cutout') && !photo.cutout && tweaks.band !== 'top') {
+      // A cutout composition lands here only where SAM couldn't cut the subject out.
+      edge();
     } else if (system.composition === 'window') {
       // Editorial: the photo in a window inside the margins and the text beside it,
       // never over it. Where the subject can't be cropped the window narrows to the
@@ -497,9 +584,12 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
       const logoBox: Rect = { x1: W / 2 - 120 * logoScale - 22, y1: logoY - 14, x2: W / 2 + 120 * logoScale + 22, y2: logoY + logoH + 14 };
       const blocked = covers(band(top)) > 0.1 || faces.some((f) => overlap(f, gradientZone) > 0) || (!!logo && !!k && overlap(logoBox, k) > 0);
       split = !!photo.cutout || tweaks.band === 'split' || (tweaks.band !== 'top' && tweaks.band !== 'bottom' && (!whole || blocked));
-      if (split && system.composition === 'overlay') {
-        // An overlay slide that can't take its text over the photo keeps the text at the
-        // bottom like the others: the photo above it, fading into the ground.
+      if (split && system.composition === 'overlay' && !photo.cutout) {
+        // An overlay slide that can't take its text over the photo (a person standing
+        // the whole height) keeps the text at the bottom on the ground, under a hard edge:
+        // the fade here made every overlay brand look like photo_top.
+        edge();
+      } else if (split && system.composition === 'overlay') {
         y0 = bottomSafe - total;
         textBand = 'bottom';
         region = { x1: 0, y1: 0, x2: W, y2: y0 - 48 };
@@ -584,6 +674,25 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
         code.push(`_shape('Card', ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${py(photo.matte ?? CARD_LIGHT)}, ${R}, _bgpos())`);
       }
       visible = card;
+    } else if (photo && frame && cutPoster && region) {
+      product = onSlide(photo.content ?? FULL, frame);
+      code.push(`_image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+      if (product.y2 < H) {
+        const shade = path.join(dir, `s${slide.n}-shadow.png`);
+        const sw = Math.round((product.x2 - product.x1) * 0.8);
+        await shadow(shade, sw);
+        code.push(`_image('Shadow', ${py(shade)}, ${Math.round((product.x1 + product.x2) / 2 - (sw + 120) / 2)}, ${product.y2 - 70}, ${sw + 120}, 120, _bgpos())`);
+      }
+      const circle = path.join(dir, `s${slide.n}-disc.png`);
+      await disc(circle, pal.accent, product, region.y1);
+      code.push(`_image('Disc', ${py(circle)}, 0, 0, ${W}, ${H}, _bgpos())`);
+      visible = region;
+    } else if (photo && frame && edged && region) {
+      const file = path.join(dir, `s${slide.n}-photo.png`);
+      const stripe = path.join(dir, `s${slide.n}-stripe.png`);
+      visible = await edgePhoto(photo.path, frame, region.y2, slant, file, stripe, pal.accent);
+      code.push(`_image('Photo', ${py(file)}, 0, 0, ${W}, ${region.y2}, _bgpos())`);
+      code.push(`_image('Stripe', ${py(stripe)}, 0, 0, ${W}, ${region.y2 + 18}, _bgpos())`);
     } else if (photo?.cutout && frame && split && region) {
       product = onSlide(photo.content ?? FULL, frame);
       if (photo.matte) {
@@ -647,14 +756,15 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
     // The decor kit, on the ground only: the element and the glow never on a full-bleed photo.
     let decor: Rect | undefined;
     // A window leaves the ground around the photo, where the decor may go.
-    const fullBleed = !!photo && !inCard && !windowed;
+    const fullBleed = !!photo && !inCard && !windowed && !cutPoster && !edged;
     if (system.decor && !fullBleed && tweaks.decor !== false) {
       if (system.decor.elementFile) {
         const logoBox: Rect = heroLogo
           ? { x1: W / 2 - 220, y1: 250, x2: W / 2 + 220, y2: 480 }
           : { x1: left ? M : W / 2 - 120 * logoScale - 22, y1: logoY - 14, x2: left ? M + 240 * logoScale + 44 : W / 2 + 120 * logoScale + 22, y2: logoY + logoH + 14 };
         const out = path.join(dir, `s${slide.n}-decor.png`);
-        decor = await decorElement(system.decor.elementFile, slide.n, [text, ...(logo ? [logoBox] : []), ...(card ? [card] : [])], out);
+        const photoArea = edged && region ? { ...region, y2: region.y2 + 18 } : cutPoster ? product : undefined;
+        decor = await decorElement(system.decor.elementFile, slide.n, [text, ...(logo ? [logoBox] : []), ...(card ? [card] : []), ...(photoArea ? [photoArea] : [])], out);
         if (decor) code.push(`_image('Decor', ${py(out)}, ${decor.x1}, ${decor.y1}, ${decor.x2 - decor.x1}, ${decor.y2 - decor.y1}, _bgpos())`);
       }
       const light = path.join(dir, `s${slide.n}-glow.png`);
@@ -719,9 +829,17 @@ _bt.set_offsets(int(${x + w / 2} - _bt.get_width() / 2), ${p.y + 32})`);
       photoFrame: frame,
       textBand,
       split,
+      shape: !photo ? 'text' : inCard ? 'card' : cutPoster ? 'cutout' : edged ? 'split' : windowed ? 'window' : !split ? 'overlay' : textBand === 'top' ? 'stacked' : 'photo_top',
       card,
       product,
-      subject: keep && frame ? onSlide(keep, frame) : !card ? product : undefined,
+      // Under a hard edge only the faces must stay whole.
+      subject: edged
+        ? faceKeep && frame
+          ? onSlide(faceKeep, frame)
+          : undefined
+        : cutPoster && product
+          ? { ...product, y2: Math.min(product.y2, H) }
+          : keep && frame ? onSlide(keep, frame) : !card ? product : undefined,
       visible,
       text,
       decor,

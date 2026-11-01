@@ -2,7 +2,7 @@ import { PERSONALITIES, type Personality } from './variety.js';
 
 // The carousel's visual system: decided once by the art director, applied by the
 // templates to every slide. This is what keeps the slides one family.
-export const COMPOSITIONS = ['stacked', 'photo_top', 'window', 'overlay'] as const;
+export const COMPOSITIONS = ['stacked', 'photo_top', 'window', 'overlay', 'cutout', 'split'] as const;
 export type Composition = (typeof COMPOSITIONS)[number];
 
 export type DesignSystem = {
@@ -191,11 +191,18 @@ export function paletteFor(s: DesignSystem, layout: string): { ground: string; i
     : { ground: s.base, ink: s.ink, accent: s.accent, accentInk: s.accentInk, colored };
 }
 
+// The cutout composition cuts the photo slides' subject out; product cards and the hero keep their own template.
+export function cutsOut(s: DesignSystem, layout: string | undefined): boolean {
+  return s.composition === 'cutout' && (!layout || layout === 'cover' || layout === 'photo_band' || layout === 'cta');
+}
+
 const COMPOSITION_NOTES: Record<Composition, string> = {
   stacked: 'Photo slides: the text on the ground at the top, the photo below it fading into the ground.',
   photo_top: 'Photo slides: the photo full-width at the top fading into the ground, the text below it, the logo at the foot.',
   window: 'Photo slides: the photo in a window inside the margins, on the ground, with the text beside it, never over it.',
   overlay: 'Photo slides: the photo full-bleed with the text over a soft gradient at its quietest edge.',
+  cutout: 'Photo slides: the person or product cut out of its photo, big, standing at the foot of the slide on a solid color block with a big accent circle behind it; the text on the ground above it (on purpose: no photo rectangle, no fade).',
+  split: 'Photo slides: the photo full-width at the top with a hard edge (slanted for lively brands) and a thin accent stripe along it, the text on the solid ground below; the photo may crop a body, never a face (on purpose: no fade).',
 };
 
 export function describeSystem(s: DesignSystem): string {

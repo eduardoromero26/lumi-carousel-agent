@@ -18,7 +18,7 @@ import { captureSite, readSite } from './site.js';
 import { assetsFromScreens } from './screen_assets.js';
 import { cutOut, keyOut } from './cutout.js';
 import { designSystem } from './agents/art_director.js';
-import { describeSystem } from './design.js';
+import { cutsOut, describeSystem } from './design.js';
 import { buildSlide, type Built } from './templates.js';
 import { lintSlide } from './lint.js';
 import { chooseFix, type Fix } from './agents/fixer.js';
@@ -198,8 +198,23 @@ async function prepareSlide(run: Run, slide: SlidePlan): Promise<Prepared> {
       photo = cut;
     }
   }
-  // Products loose on the ground (the brand's way, or a hero): a studio shot loses its plain background.
-  if (photo?.cutout && photo.matte && (system.products === 'loose' || slide.layout === 'hero')) {
+  // The cutout composition: the person or product of every photo slide comes out of its photo
+  // (where SAM can't find it, the template gives the photo a hard edge instead).
+  if (photo && cutsOut(system, slide.layout) && !photo.cutout && !photo.backdrop) {
+    const people = run.assets.find((a) => a.id === photo!.asset)?.kind === 'people';
+    const subject = people ? 'person' : slide.subject || 'product';
+    const cut = run.photos.find((p) => p.id === `${photo!.id}c`) ?? (await cutOut(run, photo, subject).catch(() => undefined));
+    run.emit('status', 'analyst', cut ? `SAM 3.1 cut the ${subject} out for the cutout composition.` : `SAM 3.1 could not cut the ${subject} out; this slide gets a hard-edged photo.`, {
+      slide: slide.n,
+      data: cut ? { url: run.fileUrl(cut.path) } : undefined,
+    });
+    if (cut) {
+      slide.photo = cut.id;
+      photo = cut;
+    }
+  }
+  // Products loose on the ground (the brand's way, a hero or the cutout composition): a studio shot loses its plain background.
+  if (photo?.cutout && photo.matte && (system.products === 'loose' || slide.layout === 'hero' || cutsOut(system, slide.layout))) {
     const keyed = run.photos.find((p) => p.id === `${photo!.id}k`) ?? (await keyOut(run, photo).catch(() => undefined));
     if (keyed) {
       slide.photo = keyed.id;
@@ -288,7 +303,7 @@ async function buildAndReview(
       built = drawn.built;
       snapshot = drawn.snapshot;
       const { measured } = drawn;
-      run.emit('status', 'designer', `Built from the "${built.layout}" template${built.split ? (built.textBand === 'top' ? ' (text above, photo below)' : ' (photo above, text below)') : ''}.`, { slide: slide.n });
+      run.emit('status', 'designer', `Built from the "${built.layout}" template${built.split ? (built.textBand === 'top' ? ' (text above, photo below)' : ' (photo above, text below)') : ''}.`, { slide: slide.n, data: { shape: built.shape } });
       const snapFile = `s${slide.n}-${Date.now()}.png`;
       await writeFile(path.join(snapsDir, snapFile), Buffer.from(snapshot, 'base64'));
       run.emit('snapshot', 'designer', `Round ${round + 1}`, { slide: slide.n, data: { url: `/files/${run.id}/snaps/${snapFile}` } });

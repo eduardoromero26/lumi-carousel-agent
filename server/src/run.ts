@@ -42,6 +42,8 @@ export type Photo = {
   matte?: string;
   content?: { x1: number; y1: number; x2: number; y2: number };
   cropped?: boolean;
+  // A cutout whose subject reaches its photo's bottom edge (a person cut at the waist): it stands on the slide's foot.
+  grounded?: boolean;
   // The website asset it comes from (none for the owner's uploads).
   asset?: string;
 };

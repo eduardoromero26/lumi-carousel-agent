@@ -9,6 +9,9 @@ export type Look = {
   host: string;
   personality?: Personality;
   composition?: DesignSystem['composition'];
+  // How its photo slides really came out: 4 of 7 "overlay" brands came out as photo_top.
+  shape?: string;
+  colorSlides?: DesignSystem['colorSlides'];
   headingFont?: string;
   bodyFont?: string;
   device?: DesignSystem['device'];
@@ -123,6 +126,8 @@ export function lookOf(run: Run): Look {
     personality: s?.personality,
     // Before compositions every carousel was stacked.
     composition: s ? (s.composition ?? 'stacked') : undefined,
+    shape: s ? shapeOf(run) : undefined,
+    colorSlides: s?.colorSlides,
     headingFont: s?.headingFont,
     bodyFont: s?.bodyFont,
     device: s?.device,
@@ -133,9 +138,25 @@ export function lookOf(run: Run): Look {
   };
 }
 
+// The shape most of its photo slides came out in (the last build of each slide);
+// runs from before the shape was kept read it from the build message.
+export function shapeOf(run: Run): string {
+  const last = new Map<number, string>();
+  // The window also said "photo above, text below".
+  const above = run.system?.composition === 'window' ? 'window' : 'photo_top';
+  for (const e of run.events) {
+    if (e.slide === undefined || !e.text.startsWith('Built from the')) continue;
+    const shape = (e.data as { shape?: string } | undefined)?.shape ?? (e.text.includes('(photo above') ? above : e.text.includes('(text above') ? 'stacked' : undefined);
+    if (shape) last.set(e.slide, shape);
+  }
+  const counts = new Map<string, number>();
+  for (const shape of last.values()) if (shape !== 'text' && shape !== 'card') counts.set(shape, (counts.get(shape) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? run.system?.composition ?? 'stacked';
+}
+
 export function describeLooks(looks: Look[]): string {
   return looks
-    .map((l) => `- ${l.host}: ${l.composition ?? 'stacked'}, ${l.headingFont ?? '?'} / ${l.bodyFont ?? '?'}, ${l.device?.replace('_', ' ')}, logo ${l.logoPosition?.replace('_', ' ')}, ${l.align}, ${l.headlineCase === 'upper' ? 'capitals' : 'as is'}`)
+    .map((l) => `- ${l.host}: ${l.shape && l.shape !== l.composition ? `${l.shape} (asked for ${l.composition})` : (l.composition ?? 'stacked')}${l.colorSlides ? `, color blocks ${l.colorSlides}` : ''}, ${l.headingFont ?? '?'} / ${l.bodyFont ?? '?'}, ${l.device?.replace('_', ' ')}, logo ${l.logoPosition?.replace('_', ' ')}, ${l.align}, ${l.headlineCase === 'upper' ? 'capitals' : 'as is'}`)
     .join('\n');
 }
 
@@ -175,12 +196,21 @@ export function freshen(system: DesignSystem, siteFonts: string[], recent: Look[
   };
   const pick = <T extends string>(key: string, options: T[], uses: (o: T) => number) =>
     (votesOn(stats, key) >= 3 ? sampleChoice(stats, key, options) : undefined) ?? [...options].sort((a, b) => uses(a) - uses(b))[0];
-  const laidOut = (c: string) => last.filter((l) => (l.composition ?? 'stacked') === c).length;
-  if (most(laidOut(system.composition)) || disliked('composition', system.composition)) {
+  // What was asked for and what came out both count. The composition is what makes
+  // carousels look alike at a glance: never the previous brand's, at most two in five.
+  const laidOut = (c: string) => last.filter((l) => l.composition === c || l.shape === c || (!l.composition && c === 'stacked')).length;
+  const previous = last[0] ? [last[0].composition, last[0].shape] : [];
+  if (previous.includes(system.composition) || laidOut(system.composition) >= 2 || disliked('composition', system.composition)) {
     // The overlay needs photos with room for the text: only the art director picks it.
-    const composition = pick('composition', COMPOSITIONS.filter((c) => c !== system.composition && c !== 'overlay'), laidOut);
+    const composition = pick('composition', COMPOSITIONS.filter((c) => c !== system.composition && c !== 'overlay' && !previous.includes(c)), laidOut);
     changes.push(`composition ${system.composition} → ${composition}`);
     system.composition = composition;
+  }
+  const blocks = (c: string) => last.filter((l) => l.colorSlides === c).length;
+  if (most(blocks(system.colorSlides))) {
+    const colorSlides = (['both', 'cover', 'cta', 'none'] as const).filter((c) => c !== system.colorSlides).sort((a, b) => blocks(a) - blocks(b))[0];
+    changes.push(`color blocks ${system.colorSlides} → ${colorSlides}`);
+    system.colorSlides = colorSlides;
   }
   const devices = (['underline', 'frame', 'pill_label'] as const).filter((d) => d !== 'pill_label' || hasLabels);
   const count = (d: string) => last.filter((l) => l.device === d).length;
@@ -197,9 +227,14 @@ export function freshen(system: DesignSystem, siteFonts: string[], recent: Look[
     system.logoPosition = other;
   }
   // The photo takes the top edge: the logo goes to the foot.
-  if ((system.composition === 'photo_top' || system.composition === 'overlay') && system.logoPosition !== 'bottom_center') {
+  if ((system.composition === 'photo_top' || system.composition === 'overlay' || system.composition === 'split') && system.logoPosition !== 'bottom_center') {
     changes.push('logo at the foot, under the text (the photo takes the top)');
     system.logoPosition = 'bottom_center';
+  }
+  // The cutout stands on the foot: the logo goes to the top.
+  if (system.composition === 'cutout' && system.logoPosition !== 'top_center') {
+    changes.push('logo at the top (the cutout stands on the foot of the slide)');
+    system.logoPosition = 'top_center';
   }
   return changes;
 }

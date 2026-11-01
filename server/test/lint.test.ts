@@ -18,6 +18,7 @@ const built = (extra: Partial<Built> = {}): Built => ({
   ink: '#111111',
   textBand: 'top',
   split: false,
+  shape: 'overlay',
   text: { x1: 140, y1: 120, x2: 940, y2: 460 },
   textScale: 1,
   photoCropped: false,

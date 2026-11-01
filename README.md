@@ -39,7 +39,7 @@ website + language
 
 ## It learns what the owner likes
 
-The **Feed** shows every carousel like a Meta feed (feed and grid), with the research behind each one. 👍/👎 on a carousel or a slide is stored with the features of what was voted (composition, personality, fonts, logo, layout, hook, energy). Each feature value keeps a Beta posterior; the art director reads what the owner clearly liked or disliked, and code picks replacements by **Thompson sampling**. A variety check keeps brands from looking alike: it sees the recent looks and swaps a font, device or logo position that the last runs repeated.
+The **Feed** shows every carousel like a Meta feed (feed and grid), with the research behind each one. 👍/👎 on a carousel or a slide is stored with the features of what was voted (composition, personality, fonts, logo, layout, hook, energy). Each feature value keeps a Beta posterior; the art director reads what the owner clearly liked or disliked, and code picks replacements by **Thompson sampling**. A 👎 asks what's wrong: those words go to the critic before it approves the next slides, and each vote keeps what the critic said at the time, so **Your taste** shows how often the critic agrees with the owner and the share of carousels the owner liked per queue batch. A variety check keeps brands from looking alike: it sees the recent looks and swaps a font, device or logo position that the last runs repeated.
 
 ## The reel (off)
 

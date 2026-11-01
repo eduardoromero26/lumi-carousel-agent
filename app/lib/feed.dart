@@ -131,11 +131,17 @@ class _PostCardState extends State<PostCard> {
   bool more = false;
   late Map<String, int> votes = ((widget.post['votes'] as Map?) ?? {}).cast<String, int>();
 
-  // Tapping the same thumb again takes the vote back.
+  // Tapping the same thumb again takes the vote back. A dislike asks what's wrong: the
+  // critic learns from those words what it let through.
   Future<void> vote(String target, int value) async {
     final next = votes[target] == value ? 0 : value;
+    String? note;
+    if (next == -1) {
+      note = await _askWhatsWrong(context, target);
+      if (note == null) return;
+    }
     try {
-      final saved = await Api.vote(widget.post['id'] as String, target, next);
+      final saved = await Api.vote(widget.post['id'] as String, target, next, note: note);
       if (mounted) setState(() => votes = saved);
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
@@ -302,12 +308,43 @@ class _PostCardState extends State<PostCard> {
   }
 }
 
-// What the votes taught the agents: per design choice, the share of likes (Beta mean,
-// so one vote doesn't read as 100 %) and the votes behind it.
+// Null when the owner cancels the dislike; an empty note still counts as a dislike.
+Future<String?> _askWhatsWrong(BuildContext context, String target) {
+  final text = TextEditingController();
+  final what = target == 'carousel' ? 'this carousel' : target == 'reel' ? 'this reel' : target.replaceFirst('slide:', 'slide ');
+  return showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text("What's wrong with $what?"),
+      content: SizedBox(
+        width: 460,
+        child: TextField(
+          controller: text,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 5,
+          decoration: const InputDecoration(
+            hintText: 'e.g. the headline is too small to read on a phone; the product is cut',
+            helperText: 'Optional. The critic reads it before approving the next ones.',
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, text.text), child: const Text('Dislike')),
+      ],
+    ),
+  ).whenComplete(text.dispose);
+}
+
+// What the votes taught the agents: how often the critic agrees with the owner, the
+// likes per batch and, per design choice, the share of likes (Beta mean, so one vote
+// doesn't read as 100 %) and the votes behind it.
 Future<void> showTaste(BuildContext context) async {
   final List<Map<String, dynamic>> stats;
+  final Map<String, dynamic> calibration;
   try {
-    stats = await Api.taste();
+    (stats, calibration) = await (Api.taste(), Api.calibration()).wait;
   } catch (e) {
     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     return;
@@ -326,6 +363,7 @@ Future<void> showTaste(BuildContext context) async {
         child: stats.isEmpty
             ? const Text('Vote on carousels, slides and reels in the feed: the agents learn what you like from your votes.')
             : ListView(shrinkWrap: true, children: [
+                _Calibration(report: calibration),
                 for (final entry in byKey.entries) ...[
                   Padding(
                     padding: const EdgeInsets.only(top: 12, bottom: 4),
@@ -338,6 +376,52 @@ Future<void> showTaste(BuildContext context) async {
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
     ),
   );
+}
+
+// The critic against the owner: its approval should mean the owner's like. "Too easy"
+// lists what it approved and the owner disliked, with the owner's words.
+class _Calibration extends StatelessWidget {
+  const _Calibration({required this.report});
+  final Map<String, dynamic> report;
+
+  @override
+  Widget build(BuildContext context) {
+    final rate = report['rate'] as num?;
+    final tooEasy = (report['tooEasy'] as List).cast<Map<String, dynamic>>();
+    final tooHard = (report['tooHard'] as List).length;
+    final batches = (report['batches'] as List).cast<Map<String, dynamic>>();
+    const label = TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _muted, letterSpacing: 0.6);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('CRITIC VS YOU', style: label),
+      const SizedBox(height: 4),
+      Text(
+        rate == null ? 'No votes on finished work yet.' : 'The critic agrees with you on ${(rate * 100).round()} % of ${report['judged']} votes.',
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ),
+      if (rate != null)
+        Text('Approved by the critic, disliked by you: ${tooEasy.length} · rejected by the critic, liked by you: $tooHard',
+            style: const TextStyle(fontSize: 12, color: _muted)),
+      for (final v in tooEasy.where((v) => (v['note'] as String?)?.isNotEmpty ?? false).take(5))
+        Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text('${v['business'] ?? '?'} · ${(v['target'] as String).replaceFirst('slide:', 'slide ')}: “${v['note']}”',
+              style: const TextStyle(fontSize: 12)),
+        ),
+      if (batches.isNotEmpty) ...[
+        const Padding(padding: EdgeInsets.only(top: 14, bottom: 4), child: Text('CAROUSELS YOU LIKED, PER BATCH', style: label)),
+        for (final b in batches)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(children: [
+              Expanded(child: Text(b['batch'] as String, overflow: TextOverflow.ellipsis)),
+              Text('${(((b['liked'] as num) / (b['voted'] as num)) * 100).round()} %  (${b['liked']}/${b['voted']})',
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+            ]),
+          ),
+      ],
+      const Divider(height: 24),
+    ]);
+  }
 }
 
 class _TasteRow extends StatelessWidget {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { describeTaste, sampleChoice, tasteStats, votesOn, type Vote } from '../src/taste.js';
+import { calibration, describeLessons, describeTaste, sampleChoice, tasteStats, votesOn, type Judged, type Vote } from '../src/taste.js';
 
 const votes = (value: 1 | -1, n: number, features: Record<string, string>): Vote[] => Array.from({ length: n }, () => ({ value, features }));
 
@@ -35,4 +35,37 @@ test('Thompson sampling still explores options without votes', () => {
   for (let i = 0; i < 200; i++) seen.add(sampleChoice([], 'hook', ['photo_wall', 'marquee', 'photo_full'] as const)!);
   assert.equal(seen.size, 3);
   assert.equal(sampleChoice([], 'hook', []), undefined);
+});
+
+const judged = (value: 1 | -1, approved: boolean | null, note: string | null = null, target = 'carousel'): Judged => ({
+  value,
+  target,
+  note,
+  critic: approved === null ? null : { approved, score: approved ? 9 : 5 },
+});
+
+test('measures how often the critic agrees with the owner', () => {
+  const report = calibration([judged(1, true), judged(-1, true, 'too small'), judged(-1, false), judged(1, false), judged(-1, null)]);
+  assert.equal(report.votes, 5);
+  assert.equal(report.liked, 2);
+  assert.equal(report.judged, 4);
+  assert.equal(report.agree, 2);
+  assert.equal(report.rate, 0.5);
+  assert.deepEqual(report.tooEasy.map((v) => v.note), ['too small']);
+  assert.equal(report.tooHard.length, 1);
+  assert.equal(calibration([]).rate, null);
+});
+
+test('gives the critic the owner\'s words, what it had approved first', () => {
+  const text = describeLessons([
+    judged(-1, false, 'colors are off', 'slide:3'),
+    judged(-1, true, 'el texto no se lee'),
+    judged(-1, true, '   '),
+    judged(1, true, 'love it'),
+  ]);
+  const lines = text.split('\n');
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0], '- a whole carousel that you had approved with 9/10: "el texto no se lee"');
+  assert.equal(lines[1], '- slide 3: "colors are off"');
+  assert.equal(describeLessons([judged(1, true, 'great')]), '');
 });

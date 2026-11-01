@@ -3,7 +3,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { hashtagList, Run } from './run.js';
-import { featuresOf, tasteStats, type Stat, type Vote } from './taste.js';
+import { calibration, featuresOf, tasteStats, type Judged, type Stat, type Verdict, type Vote } from './taste.js';
 import { lookOf, type Look } from './variety.js';
 
 // The index of every carousel for the feed: one row per run, with the post as the
@@ -33,6 +33,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS votes (
   at TEXT NOT NULL,
   PRIMARY KEY (run_id, target)
 )`);
+// Added later: the owner's words on a vote and the critic's verdict when they voted.
+const voteColumns = (db.prepare(`PRAGMA table_info(votes)`).all() as { name: string }[]).map((c) => c.name);
+if (!voteColumns.includes('note')) db.exec(`ALTER TABLE votes ADD COLUMN note TEXT`);
+if (!voteColumns.includes('critic')) db.exec(`ALTER TABLE votes ADD COLUMN critic TEXT`);
 
 const upsert = db.prepare(`INSERT INTO carousels (id, status, business, url, created_at, updated_at, slides, has_reel, cost, post)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -64,16 +68,76 @@ export function listCarousels(): unknown[] {
   return rows.map((r) => ({ ...JSON.parse(r.post), ...(config.reels ? {} : { reel: null, reelCover: null }), votes: votesOf(r.id) }));
 }
 
-// 1 likes, -1 dislikes, 0 takes the vote back.
-export function saveVote(run: Run, target: string, value: number): void {
+// 1 likes, -1 dislikes, 0 takes the vote back. The note is what the owner says is wrong.
+export function saveVote(run: Run, target: string, value: number, note?: string): void {
   if (value === 0) {
     db.prepare(`DELETE FROM votes WHERE run_id = ? AND target = ?`).run(run.id, target);
     return;
   }
+  const verdict = criticVerdict(run, target);
   db.prepare(
-    `INSERT INTO votes (run_id, target, value, features, at) VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(run_id, target) DO UPDATE SET value = excluded.value, features = excluded.features, at = excluded.at`,
-  ).run(run.id, target, value > 0 ? 1 : -1, JSON.stringify(featuresOf(run, target)), new Date().toISOString());
+    `INSERT INTO votes (run_id, target, value, features, at, note, critic) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(run_id, target) DO UPDATE SET value = excluded.value, features = excluded.features, at = excluded.at,
+       note = excluded.note, critic = excluded.critic`,
+  ).run(
+    run.id,
+    target,
+    value > 0 ? 1 : -1,
+    JSON.stringify(featuresOf(run, target)),
+    new Date().toISOString(),
+    note?.trim().slice(0, 600) || null,
+    verdict ? JSON.stringify(verdict) : null,
+  );
+}
+
+// What the critic said when the owner voted: on a slide, whether the kept version was
+// approved and its best score; on the carousel, every slide approved and the set's score.
+function criticVerdict(run: Run, target: string): Verdict | undefined {
+  if (target === 'carousel') {
+    if (!run.slides.length) return undefined;
+    const set = run.events.filter((e) => e.type === 'review' && e.agent === 'critic' && e.text.startsWith('The set')).at(-1);
+    return { approved: run.slides.every((s) => s.approved), score: setScore(set?.data, set?.text) };
+  }
+  const n = target.startsWith('slide:') ? Number(target.slice(6)) : NaN;
+  const slide = run.slides.find((s) => s.n === n);
+  if (!slide) return undefined;
+  const scores = run.events
+    .filter((e) => e.type === 'review' && e.agent === 'critic' && e.slide === n)
+    .map((e) => (e.data as { score?: unknown } | undefined)?.score)
+    .filter((s): s is number => typeof s === 'number');
+  return { approved: slide.approved, score: scores.length ? Math.max(...scores) : null };
+}
+
+// Every vote with what the critic said and the owner's words, newest first.
+export function judgedVotes(): Judged[] {
+  const rows = db
+    .prepare(
+      `SELECT v.run_id, v.target, v.value, v.note, v.critic, v.at, c.business FROM votes v
+       LEFT JOIN carousels c ON c.id = v.run_id ORDER BY v.at DESC`,
+    )
+    .all() as { run_id: string; target: string; value: number; note: string | null; critic: string | null; at: string; business: string | null }[];
+  return rows.map((r) => ({
+    runId: r.run_id,
+    target: r.target,
+    value: r.value > 0 ? 1 : -1,
+    note: r.note,
+    critic: r.critic ? (JSON.parse(r.critic) as Verdict) : null,
+    at: r.at,
+    business: r.business ?? undefined,
+  }));
+}
+
+// The critic against the owner, and the owner's likes per queue batch: the share of
+// carousels the owner liked is the quality a batch reached.
+export function calibrationReport() {
+  const votes = judgedVotes();
+  const batches = db
+    .prepare(
+      `SELECT COALESCE(q.batch, 'made by hand') AS batch, COUNT(*) AS voted, SUM(v.value > 0) AS liked FROM votes v
+       LEFT JOIN queue q ON q.run_id = v.run_id WHERE v.target = 'carousel' GROUP BY 1 ORDER BY MAX(v.at) DESC`,
+    )
+    .all() as { batch: string; voted: number; liked: number }[];
+  return { ...calibration(votes), batches };
 }
 
 export function votesOf(runId: string): Record<string, number> {
@@ -87,13 +151,21 @@ export function taste(): Stat[] {
   return tasteStats(rows.map((r) => ({ value: r.value > 0 ? 1 : -1, features: JSON.parse(r.features) }) as Vote));
 }
 
-// Fills the table from the runs already on disk, the first time and after a crash.
+// Fills the table from the runs already on disk, the first time and after a crash,
+// and the critic's verdict on votes cast before it was kept.
 export async function backfill(): Promise<void> {
   if (!existsSync(config.runsDir)) return;
+  const unjudged = db.prepare(`SELECT target FROM votes WHERE run_id = ? AND critic IS NULL`);
+  const judge = db.prepare(`UPDATE votes SET critic = ? WHERE run_id = ? AND target = ?`);
   for (const id of readdirSync(config.runsDir)) {
     if (!existsSync(path.join(config.runsDir, id, 'run.json'))) continue;
     const run = await Run.load(id).catch(() => undefined);
-    if (run) saveCarousel(run);
+    if (!run) continue;
+    saveCarousel(run);
+    for (const { target } of unjudged.all(id) as { target: string }[]) {
+      const verdict = criticVerdict(run, target);
+      if (verdict) judge.run(JSON.stringify(verdict), id, target);
+    }
   }
 }
 

@@ -4,7 +4,17 @@ import { chatJson, imagePart, type ContentPart } from '../llm.js';
 import type { Plan, Run, SlidePlan } from '../run.js';
 import { protectedText } from '../sam.js';
 import { parseFixRequests, type FixRequest } from '../fixes.js';
+import { judgedVotes } from '../db.js';
+import { describeLessons } from '../taste.js';
 import { CRITIC, CRITIC_SET, MOTION_CRITIC } from './prompts.js';
+
+// The owner's words on work they disliked: what a strict art director missed before.
+function ownerLessons(): string {
+  const lessons = describeLessons(judgedVotes());
+  return lessons
+    ? `The business owner disliked past work, often work you had approved. Their own words (maybe in Spanish); look for the same problems here and answer "no" when you see them:\n${lessons}`
+    : '';
+}
 
 export const CHECKS = ['brand', 'content', 'image', 'nothing_weird', 'original_photo', 'same_faces', 'padding', 'whole_subject', 'system', 'aesthetic'] as const;
 
@@ -52,6 +62,7 @@ export async function reviewSlide(
         ownerFeedback.length
           ? `The business owner asked for these changes, and they override the plan: ${ownerFeedback.join('; ')}. Check that every one was applied.`
           : '',
+        ownerLessons(),
         'The slide to review:',
       ]
         .filter(Boolean)
@@ -137,8 +148,11 @@ export async function reviewSet(plan: Plan, slidePngs: { n: number; file: string
             `Carousel: ${plan.concept}`,
             `Slides in order: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role} "${s.headline}"`).join('; ')}.`,
             `The visual system they must share: ${system}`,
+            ownerLessons(),
             'The contact sheet, left to right:',
-          ].join('\n'),
+          ]
+            .filter(Boolean)
+            .join('\n'),
         },
         imagePart(sheet.toString('base64'), 'image/jpeg'),
       ],

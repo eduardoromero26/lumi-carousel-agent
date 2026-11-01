@@ -105,12 +105,12 @@ class Api {
   }
 
   // The owner's vote on a carousel ("carousel"), a slide ("slide:2") or the reel ("reel"):
-  // 1 likes, -1 dislikes, 0 takes it back. Returns the post's votes.
-  static Future<Map<String, int>> vote(String runId, String target, int value) async {
+  // 1 likes, -1 dislikes, 0 takes it back; the note is what's wrong. Returns the post's votes.
+  static Future<Map<String, int>> vote(String runId, String target, int value, {String? note}) async {
     final res = await http.post(
       Uri.parse('$apiUrl/api/runs/$runId/vote'),
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'target': target, 'value': value}),
+      body: jsonEncode({'target': target, 'value': value, if (note != null && note.trim().isNotEmpty) 'note': note.trim()}),
     );
     if (res.statusCode != 200) throw Exception('Error ${res.statusCode}');
     return (jsonDecode(res.body) as Map<String, dynamic>).cast<String, int>();
@@ -121,6 +121,13 @@ class Api {
     final res = await http.get(Uri.parse('$apiUrl/api/taste'));
     if (res.statusCode != 200) throw Exception('Error ${res.statusCode}');
     return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  // The critic against the owner's votes: {votes, liked, judged, agree, rate, tooEasy, tooHard, batches}.
+  static Future<Map<String, dynamic>> calibration() async {
+    final res = await http.get(Uri.parse('$apiUrl/api/calibration'));
+    if (res.statusCode != 200) throw Exception('Error ${res.statusCode}');
+    return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
   // The queue: {paused, busy, running, items, batches}.

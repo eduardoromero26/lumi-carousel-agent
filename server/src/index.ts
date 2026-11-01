@@ -14,7 +14,7 @@ import type { Asset } from './run.js';
 // Some hosts (Mixkit, Openverse) hang over IPv6 on this network: IPv4 first.
 setDefaultResultOrder('ipv4first');
 import { Run, type Brief } from './run.js';
-import { backfill, listCarousels, saveCarousel, saveVote, taste, votesOf } from './db.js';
+import { backfill, calibrationReport, listCarousels, saveCarousel, saveVote, taste, votesOf } from './db.js';
 import { batchReport, batchSummaries, enqueue, failuresReport, isPaused, markFailed, markFinished, markRunning, nextWaiting, queueItems, removeWaiting, savedLists, setPaused, type QueueItem } from './queue.js';
 
 Run.onSave = (run) => {
@@ -108,6 +108,9 @@ const server = http.createServer(async (req, res) => {
     // GET /api/taste: what the votes say about each design choice
     if (req.method === 'GET' && url.pathname === '/api/taste') return json(res, 200, taste());
 
+    // GET /api/calibration: how often the critic agrees with the owner's votes, and the likes per batch
+    if (req.method === 'GET' && url.pathname === '/api/calibration') return json(res, 200, calibrationReport());
+
     let run = parts[0] === 'api' && parts[1] === 'runs' && parts[2] ? runs.get(parts[2]) : undefined;
     if (!run && parts[0] === 'api' && parts[1] === 'runs' && parts[2]) {
       run = await Run.load(parts[2]);
@@ -122,12 +125,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, 202, run.summary());
     }
 
-    // POST /api/runs/:id/vote {target: "carousel" | "reel" | "slide:N", value: 1 | -1 | 0}
+    // POST /api/runs/:id/vote {target: "carousel" | "reel" | "slide:N", value: 1 | -1 | 0, note?: what is wrong}
     if (req.method === 'POST' && parts[3] === 'vote') {
       if (!run) return json(res, 404, { error: 'Run not found' });
-      const { target, value } = (await readJson(req)) as { target?: string; value?: number };
+      const { target, value, note } = (await readJson(req)) as { target?: string; value?: number; note?: unknown };
       if (!target || !/^(carousel|reel|slide:\d+)$/.test(target) || ![1, -1, 0].includes(Number(value))) return json(res, 400, { error: 'Bad vote' });
-      saveVote(run, target, Number(value));
+      saveVote(run, target, Number(value), typeof note === 'string' ? note : undefined);
       return json(res, 200, votesOf(run.id));
     }
 

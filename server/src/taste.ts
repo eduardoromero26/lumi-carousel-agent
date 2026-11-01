@@ -83,6 +83,42 @@ export function sampleChoice<T extends string>(stats: Stat[], key: string, optio
   return options.map((o) => [o, draw(o)] as const).sort((a, b) => b[1] - a[1])[0][0];
 }
 
+// What the critic said about what the owner voted, kept at vote time like the features.
+export type Verdict = { approved: boolean; score: number | null };
+export type Judged = { value: 1 | -1; target: string; critic: Verdict | null; note: string | null; business?: string; runId?: string; at?: string };
+
+// How often the critic agrees with the owner: its approval should mean the owner's
+// like. "Too easy" is what it approved and the owner disliked, the miss that matters.
+export function calibration(votes: Judged[]) {
+  const judged = votes.filter((v) => v.critic);
+  const agree = judged.filter((v) => v.critic!.approved === v.value > 0).length;
+  return {
+    votes: votes.length,
+    liked: votes.filter((v) => v.value > 0).length,
+    judged: judged.length,
+    agree,
+    rate: judged.length ? agree / judged.length : null,
+    tooEasy: judged.filter((v) => v.critic!.approved && v.value < 0),
+    tooHard: judged.filter((v) => !v.critic!.approved && v.value > 0),
+  };
+}
+
+// For the critic's prompt: the owner's own words on what they disliked, newest first,
+// the work the critic had approved before the rest.
+export function describeLessons(votes: Judged[], limit = 12): string {
+  const lessons = votes
+    .filter((v) => v.value < 0 && v.note?.trim())
+    .sort((a, b) => Number(!!b.critic?.approved) - Number(!!a.critic?.approved))
+    .slice(0, limit);
+  return lessons
+    .map((v) => {
+      const what = v.target === 'carousel' ? 'a whole carousel' : v.target === 'reel' ? 'a reel' : v.target.replace(':', ' ');
+      const critic = v.critic?.approved ? ` that you had approved${v.critic.score !== null ? ` with ${v.critic.score}/10` : ''}` : '';
+      return `- ${what}${critic}: "${v.note!.trim()}"`;
+    })
+    .join('\n');
+}
+
 export function votesOn(stats: Stat[], key: string): number {
   return stats.filter((s) => s.key === key).reduce((t, s) => t + s.up + s.down, 0);
 }

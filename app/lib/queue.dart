@@ -196,6 +196,10 @@ class _QueuePageState extends State<QueuePage> {
                   onReport: () => copyReport(b['batch'] as String),
                   onAgain: () => again(b['batch'] as String),
                   onClear: () => _call(() => Api.removeFromQueue(batch: b['batch'] as String)),
+                  onVerdict: () async {
+                    final verdict = await _askVerdict(context, b['batch'] as String, b['feedback'] as Map<String, dynamic>?);
+                    if (verdict != null) await _call(() => Api.batchFeedback(b['batch'] as String, verdict.stars, verdict.note));
+                  },
                   onRemove: (id) => _call(() => Api.removeFromQueue(id: id)),
                   onStop: (runId) => Api.stop(runId).then((_) => load(), onError: (Object e) => setState(() => error = '$e')),
                 ),
@@ -260,6 +264,7 @@ class _BatchCard extends StatelessWidget {
     required this.onReport,
     required this.onAgain,
     required this.onClear,
+    required this.onVerdict,
     required this.onRemove,
     required this.onStop,
   });
@@ -271,12 +276,14 @@ class _BatchCard extends StatelessWidget {
   final VoidCallback onReport;
   final VoidCallback onAgain;
   final VoidCallback onClear;
+  final VoidCallback onVerdict;
   final ValueChanged<int> onRemove;
   final ValueChanged<String> onStop;
 
   @override
   Widget build(BuildContext context) {
     final b = summary;
+    final verdict = b['feedback'] as Map<String, dynamic>?;
     String n(dynamic v, [String suffix = '']) => v == null ? '–' : '$v$suffix';
     final pairs = [
       for (final key in ['checks', 'lint', 'errors'])
@@ -310,8 +317,25 @@ class _BatchCard extends StatelessWidget {
                 const SizedBox(height: 10),
                 Text('Fails most: ${pairs.take(6).join(' · ')}', style: const TextStyle(color: Palette.muted, fontSize: 13)),
               ],
+              if (verdict != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(color: Palette.border.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(8)),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    if (verdict['stars'] != null) Text('Your verdict: ${'★' * (verdict['stars'] as int)}${'☆' * (5 - (verdict['stars'] as int))}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    if (verdict['note'] != null) ...[
+                      const SizedBox(height: 4),
+                      Text('“${verdict['note']}”', style: const TextStyle(fontSize: 13)),
+                      const SizedBox(height: 2),
+                      const Text('Every agent reads it from the next carousel on.', style: TextStyle(fontSize: 12, color: Palette.muted)),
+                    ],
+                  ]),
+                ),
+              ],
               const SizedBox(height: 10),
               Wrap(spacing: 8, children: [
+                TextButton.icon(onPressed: onVerdict, icon: const Icon(Icons.star_outline_rounded, size: 16), label: Text(verdict == null ? 'Rate the batch' : 'Edit verdict')),
                 TextButton.icon(onPressed: onReport, icon: const Icon(Icons.copy, size: 16), label: const Text('Copy report')),
                 TextButton.icon(onPressed: onAgain, icon: const Icon(Icons.replay, size: 16), label: const Text('Run again')),
                 if ((b['waiting'] as int) > 0) TextButton.icon(onPressed: onClear, icon: const Icon(Icons.clear_all, size: 16), label: const Text('Remove waiting')),
@@ -390,4 +414,51 @@ class _ItemRow extends StatelessWidget {
       ]),
     );
   }
+}
+
+// The owner's verdict on a whole batch: stars and, in their words, what every carousel
+// should do from now on. Null when cancelled; clearing both removes the verdict.
+Future<({int? stars, String note})?> _askVerdict(BuildContext context, String batch, Map<String, dynamic>? current) {
+  final text = TextEditingController(text: current?['note'] as String? ?? '');
+  var stars = current?['stars'] as int?;
+  return showDialog<({int? stars, String note})>(
+    context: context,
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: Text('Batch “$batch”'),
+        content: SizedBox(
+          width: 520,
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('How good is the batch as a whole?', style: TextStyle(fontWeight: FontWeight.w600)),
+            Row(children: [
+              for (var i = 1; i <= 5; i++)
+                IconButton(
+                  tooltip: '$i of 5',
+                  onPressed: () => setState(() => stars = stars == i ? null : i),
+                  icon: Icon((stars ?? 0) >= i ? Icons.star_rounded : Icons.star_outline_rounded,
+                      color: (stars ?? 0) >= i ? const Color(0xFFF5A524) : const Color(0xFFC7C7C7)),
+                ),
+            ]),
+            const SizedBox(height: 12),
+            const Text('What should change in every carousel from now on?', style: TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 4),
+            const Text('The director, the art director and the critic read it on every next carousel. Turn it off in Learned › Direction.',
+                style: TextStyle(fontSize: 12, color: Palette.muted)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: text,
+              autofocus: true,
+              minLines: 4,
+              maxLines: 10,
+              decoration: const InputDecoration(hintText: 'e.g. Shorter headlines, more of the brand color, never beige, products cut out instead of in boxes…', border: OutlineInputBorder()),
+            ),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, (stars: stars, note: text.text.trim())), child: const Text('Save')),
+        ],
+      ),
+    ),
+  );
 }

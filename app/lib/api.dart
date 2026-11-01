@@ -180,6 +180,12 @@ class Api {
         http.post(Uri.parse('$apiUrl/api/queue/pause'), headers: {'Content-Type': 'application/json'}, body: jsonEncode({'paused': paused})),
       );
 
+  // The owner's verdict on a whole batch: stars and a direction every agent reads from then on.
+  static Future<Map<String, dynamic>> batchFeedback(String batch, int? stars, String note) => _queueCall(
+        http.post(Uri.parse('$apiUrl/api/queue/feedback'),
+            headers: {'Content-Type': 'application/json'}, body: jsonEncode({'batch': batch, 'stars': stars, 'note': note})),
+      );
+
   // One waiting website (id) or every waiting one of a batch.
   static Future<Map<String, dynamic>> removeFromQueue({int? id, String? batch}) => _queueCall(
         http.delete(id != null ? Uri.parse('$apiUrl/api/queue/$id') : Uri.parse('$apiUrl/api/queue').replace(queryParameters: {'batch': batch})),

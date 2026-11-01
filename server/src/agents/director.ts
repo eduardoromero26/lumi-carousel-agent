@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { chatJson, imagePart, type ContentPart } from '../llm.js';
 import { hashtagList, type Plan, type Run, type SlidePlan } from '../run.js';
+import { describeDirections } from '../db.js';
 import { DIRECTOR } from './prompts.js';
 
 export async function planCarousel(run: Run): Promise<Plan> {
@@ -17,6 +18,7 @@ export async function planCarousel(run: Run): Promise<Plan> {
         brief.brandColors?.length ? `Brand colors: ${brief.brandColors.join(', ')}` : '',
         run.site ? `Website content (facts you may use):
 ${run.site.text}` : '',
+        describeDirections(),
         run.logo ? `The business logo is available: the designer can place it (say on which slide in "visual").` : 'There is no logo file.',
         `Real photos (${run.photos.length}):`,
       ]

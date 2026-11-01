@@ -8,7 +8,7 @@ import type { Gimp } from '../gimp.js';
 import { chatJson, imagePart, type ContentPart } from '../llm.js';
 import { generateAsset } from '../muse_image.js';
 import type { Plan, Run } from '../run.js';
-import { recentLooks, taste, tasteCorrections } from '../db.js';
+import { describeDirections, recentLooks, taste, tasteCorrections } from '../db.js';
 import { describeTaste } from '../taste.js';
 import { brandKit, describeDecorTaste, keep, likedPiece } from '../library.js';
 import { describeFonts, describeLooks, freshen, hostOf } from '../variety.js';
@@ -35,6 +35,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
         `If none fits, the personality families and their fonts:\n${describeFonts()}`,
         liked ? `The owner's votes on past carousels (follow them where this brand allows): ${liked}` : '',
         corrections ? `The owner said these conclusions from the votes were learned wrong (do not apply them; their words):\n${corrections}` : '',
+        describeDirections(),
         decorTaste,
         recent.length ? `The agency's last carousels for other brands (composition, headlines / text, device, logo, alignment, case):\n${describeLooks(recent)}` : '',
         `Slides: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role}${s.photo ? ' (photo)' : ''}`).join('; ')}.`,

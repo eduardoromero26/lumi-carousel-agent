@@ -68,3 +68,27 @@ test('shows the decor the runs paid for, votable, and counts the cutouts', () =>
   assert.equal(decor.cards[0].feedback, 'too childish');
   assert.match(decor.about, /1 subjects SAM cut out/);
 });
+
+test("shows the owner's verdict on whole batches; only a note is a votable direction", () => {
+  const shelves = library({
+    stats: [],
+    votes: [],
+    calibration: calibration([]),
+    batches: [{ batch: 'v2', voted: 4, liked: 1, stars: 2.5, rated: 4 }],
+    failures: failureKinds([]),
+    lessons: new Map(),
+    learned: new Map([['direction:v1', { value: -1, note: 'ya no aplica' }]]),
+    verdicts: [
+      { batch: 'v2', stars: 2, note: 'textos más cortos, más color', at: '2026-11-02' },
+      { batch: 'v1', stars: 4, note: 'menos beige', at: '2026-11-01' },
+      { batch: 'v0', stars: 3, note: null, at: '2026-10-31' },
+    ],
+  });
+  const direction = shelves.find((s) => s.id === 'direction')!;
+  assert.deepEqual(direction.cards.map((c) => [c.id, c.title, c.tone, c.vote]), [
+    ['direction:v2', 'v2 · ★★☆☆☆', 'bad', undefined],
+    ['direction:v1', 'v1 · ★★★★☆', 'good', -1],
+    [undefined, 'v0 · ★★★☆☆', 'info', undefined],
+  ]);
+  assert.match(shelves.find((s) => s.id === 'quality')!.cards[0].text, /whole batch: 2\/5/);
+});

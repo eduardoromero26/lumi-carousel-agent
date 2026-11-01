@@ -14,7 +14,7 @@ import type { Asset } from './run.js';
 // Some hosts (Mixkit, Openverse) hang over IPv6 on this network: IPv4 first.
 setDefaultResultOrder('ipv4first');
 import { Run, type Brief } from './run.js';
-import { backfill, calibrationReport, judgedVotes, learningVotes, listCarousels, rawTaste, saveCarousel, saveLearningVote, saveVote, starsOf, taste, votesOf } from './db.js';
+import { backfill, batchFeedback, calibrationReport, judgedVotes, learningVotes, listCarousels, rawTaste, saveBatchFeedback, saveCarousel, saveLearningVote, saveVote, starsOf, taste, votesOf } from './db.js';
 import { library } from './learned.js';
 import { backfillLibrary, libraryItems, libraryUrl } from './library.js';
 import { failureKinds } from './metrics.js';
@@ -71,6 +71,15 @@ const server = http.createServer(async (req, res) => {
       return json(res, 201, { ...result, ...queueState() });
     }
 
+    // POST /api/queue/feedback {batch, stars?: 1-5, note?}: the owner's verdict on a whole batch;
+    // the note is a direction every agent reads from the next carousel on. Neither clears it.
+    if (req.method === 'POST' && url.pathname === '/api/queue/feedback') {
+      const { batch, stars, note } = (await readJson(req)) as { batch?: unknown; stars?: unknown; note?: unknown };
+      if (typeof batch !== 'string' || !batch.trim()) return json(res, 400, { error: 'Bad batch' });
+      saveBatchFeedback(batch, typeof stars === 'number' ? stars : null, typeof note === 'string' ? note : null);
+      return json(res, 200, queueState());
+    }
+
     // POST /api/queue/pause {paused}: the run in progress finishes; the next one waits
     if (req.method === 'POST' && url.pathname === '/api/queue/pause') {
       const { paused } = (await readJson(req)) as { paused?: boolean };
@@ -120,14 +129,14 @@ const server = http.createServer(async (req, res) => {
       return json(
         res,
         200,
-        library({ stats: rawTaste(), votes: judgedVotes(), calibration: cal, batches, failures: failureKinds(historyRows()), lessons: lessons(), learned: learningVotes(), made: libraryItems().map((item) => ({ item, url: libraryUrl(item) })) }),
+        library({ stats: rawTaste(), votes: judgedVotes(), calibration: cal, batches, failures: failureKinds(historyRows()), lessons: lessons(), learned: learningVotes(), made: libraryItems().map((item) => ({ item, url: libraryUrl(item) })), verdicts: batchFeedback() }),
       );
     }
 
     // POST /api/learned/vote {id: a card's id, value: 1 | -1 | 0, note?: why it was learned wrong}
     if (req.method === 'POST' && url.pathname === '/api/learned/vote') {
       const { id, value, note } = (await readJson(req)) as { id?: unknown; value?: number; note?: unknown };
-      if (typeof id !== 'string' || !/^(taste|note|lesson|library):.+/.test(id) || ![1, -1, 0].includes(Number(value))) return json(res, 400, { error: 'Bad vote' });
+      if (typeof id !== 'string' || !/^(taste|note|lesson|library|direction):.+/.test(id) || ![1, -1, 0].includes(Number(value))) return json(res, 400, { error: 'Bad vote' });
       saveLearningVote(id, Number(value), typeof note === 'string' ? note : undefined);
       return json(res, 200, Object.fromEntries(learningVotes()));
     }
@@ -270,7 +279,8 @@ async function pump(): Promise<void> {
 
 function queueState() {
   const items = queueItems();
-  return { paused: isPaused(), busy, running: items.find((i) => i.status === 'running')?.runId ?? null, items, batches: batchSummaries() };
+  const feedback = batchFeedback();
+  return { paused: isPaused(), busy, running: items.find((i) => i.status === 'running')?.runId ?? null, items, batches: batchSummaries().map((b) => ({ ...b, feedback: feedback.find((f) => f.batch === b.batch) ?? null })) };
 }
 
 // The owner's own photos and logo, read like the website's: a studio shot shows the

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { hashtagList, Run } from './run.js';
-import { noteId, tasteId, type Batch, type LearningVote } from './learned.js';
+import { directionId, noteId, tasteId, type Batch, type BatchFeedback, type LearningVote } from './learned.js';
 import { calibration, featuresOf, tasteStats, type Judged, type Stat, type Verdict, type Vote } from './taste.js';
 import { lookOf, type Look } from './variety.js';
 
@@ -183,6 +183,43 @@ export function saveLearningVote(id: string, value: number, note?: string): void
     `INSERT INTO learning_votes (id, value, note, at) VALUES (?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET value = excluded.value, note = excluded.note, at = excluded.at`,
   ).run(id, value > 0 ? 1 : -1, note?.trim().slice(0, 600) || null, new Date().toISOString());
+}
+
+// The owner's verdict on a whole batch: its stars and, in their words, what every carousel
+// should do from now on. Every agent reads the notes still on (Learned › Direction).
+db.exec(`CREATE TABLE IF NOT EXISTS batch_feedback (
+  batch TEXT PRIMARY KEY,
+  stars INTEGER,
+  note TEXT,
+  at TEXT NOT NULL
+)`);
+
+export function batchFeedback(): BatchFeedback[] {
+  return db.prepare(`SELECT batch, stars, note, at FROM batch_feedback ORDER BY at DESC`).all() as BatchFeedback[];
+}
+
+export function saveBatchFeedback(batch: string, stars: number | null, note: string | null): void {
+  if (!stars && !note?.trim()) {
+    db.prepare(`DELETE FROM batch_feedback WHERE batch = ?`).run(batch);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO batch_feedback (batch, stars, note, at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(batch) DO UPDATE SET stars = excluded.stars, note = excluded.note, at = excluded.at`,
+  ).run(batch, stars && stars >= 1 && stars <= 5 ? Math.round(stars) : null, note?.trim().slice(0, 2000) || null, new Date().toISOString());
+}
+
+// For every agent's prompt: the owner's general direction still on, newest first.
+export function describeDirections(limit = 6): string {
+  const off = learningVotes();
+  const notes = batchFeedback()
+    .filter((f) => f.note && off.get(directionId(f.batch))?.value !== -1)
+    .slice(0, limit);
+  return notes.length
+    ? `The business owner's direction for every carousel, from their verdict on whole batches (newest first; where two disagree, the newest wins). It comes before your own taste:\n${notes
+        .map((f) => `- after batch "${f.batch}"${f.stars ? ` (${f.stars}/5 stars)` : ''}: "${f.note}"`)
+        .join('\n')}`
+    : '';
 }
 
 // Every vote, as the stats of each design choice.

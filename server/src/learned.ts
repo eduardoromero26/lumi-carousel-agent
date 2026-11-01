@@ -11,10 +11,12 @@ export type Card = { id?: string; title: string; text: string; evidence: string;
 export type Shelf = { id: string; title: string; about: string; cards: Card[] };
 export type LearningVote = { value: 1 | -1; note: string | null };
 export type Batch = { batch: string; voted: number; liked: number; stars: number | null; rated: number };
+export type BatchFeedback = { batch: string; stars: number | null; note: string | null; at: string };
 
 export const tasteId = (s: Stat) => `taste:${s.key}=${s.value}`;
 export const noteId = (v: Judged) => `note:${v.runId}:${v.target}`;
 export const lessonId = (kind: string) => `lesson:${kind}`;
+export const directionId = (batch: string) => `direction:${batch}`;
 
 type Input = {
   stats: Stat[];
@@ -26,14 +28,30 @@ type Input = {
   learned: Map<string, LearningVote>;
   // What the runs paid to make (library.ts), with each file's URL.
   made?: { item: LibraryItem; url: string }[];
+  // The owner's verdict on whole batches.
+  verdicts?: BatchFeedback[];
 };
 
-export function library({ stats, votes, calibration: cal, batches, failures, lessons, learned, made = [] }: Input): Shelf[] {
+export function library({ stats, votes, calibration: cal, batches, failures, lessons, learned, made = [], verdicts = [] }: Input): Shelf[] {
   const voted = (card: Card): Card => {
     const v = card.id ? learned.get(card.id) : undefined;
     return v ? { ...card, vote: v.value, feedback: v.note } : card;
   };
+  const verdictOf = (batch: string) => verdicts.find((f) => f.batch === batch)?.stars;
   const shelves: Shelf[] = [
+    {
+      id: 'direction',
+      title: 'Direction',
+      about: 'Your verdict on whole batches. The notes are read by every agent (director, art director, critic) on every carousel from then on, the newest first; 👎 turns one off.',
+      cards: verdicts.map((f) => ({
+        id: f.note ? directionId(f.batch) : undefined,
+        title: `${f.batch}${f.stars ? ` · ${'★'.repeat(f.stars)}${'☆'.repeat(5 - f.stars)}` : ''}`,
+        text: f.note ?? 'Rated without a note: only the stars count.',
+        evidence: f.note ? 'every agent reads it' : '',
+        tone: f.stars === null ? 'info' : f.stars >= 4 ? 'good' : f.stars <= 2 ? 'bad' : 'info',
+        at: f.at,
+      })),
+    },
     {
       id: 'design',
       title: 'Design',
@@ -107,7 +125,7 @@ export function library({ stats, votes, calibration: cal, batches, failures, les
       about: 'The share of carousels you liked (4-5 stars or 👍) and the average stars in each batch: the numbers each change to the agents has to beat.',
       cards: batches.map((b) => ({
         title: `${b.batch}: ${Math.round((b.liked / b.voted) * 100)} %${b.stars !== null ? ` · ${b.stars.toFixed(1)} ★` : ''}`,
-        text: `You liked ${b.liked} of the ${b.voted} carousels you voted${b.rated ? `; ${b.rated} rated with stars` : ''}.`,
+        text: `You liked ${b.liked} of the ${b.voted} carousels you voted${b.rated ? `; ${b.rated} rated with stars` : ''}.${verdictOf(b.batch) ? ` Your verdict on the whole batch: ${verdictOf(b.batch)}/5.` : ''}`,
         evidence: `${b.voted} votes`,
         tone: b.liked / b.voted >= 0.6 ? 'good' : 'info',
       })),

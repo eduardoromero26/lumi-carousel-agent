@@ -4,16 +4,22 @@ import { chatJson, imagePart, type ContentPart } from '../llm.js';
 import type { Plan, Run, SlidePlan } from '../run.js';
 import { protectedText } from '../sam.js';
 import { parseFixRequests, type FixRequest } from '../fixes.js';
-import { criticLessons } from '../db.js';
+import { criticLessons, describeDirections } from '../db.js';
 import { describeLessons } from '../taste.js';
 import { CRITIC, CRITIC_SET, MOTION_CRITIC } from './prompts.js';
 
-// The owner's words on work they disliked: what a strict art director missed before.
+// The owner's direction for every carousel and their words on work they disliked: what a
+// strict art director missed before.
 function ownerLessons(): string {
   const lessons = describeLessons(criticLessons());
-  return lessons
-    ? `The business owner disliked past work, often work you had approved. Their own words (maybe in Spanish); look for the same problems here and answer "no" when you see them:\n${lessons}`
-    : '';
+  return [
+    describeDirections(),
+    lessons
+      ? `The business owner disliked past work, often work you had approved. Their own words (maybe in Spanish); look for the same problems here and answer "no" when you see them:\n${lessons}`
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 export const CHECKS = ['brand', 'content', 'image', 'nothing_weird', 'original_photo', 'same_faces', 'padding', 'whole_subject', 'system', 'aesthetic'] as const;

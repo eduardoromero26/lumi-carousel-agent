@@ -19,7 +19,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   const onGoogle = (await Promise.all(siteFonts.map(async (f) => ((await onGoogleFonts(f)) ? f : undefined)))).filter(Boolean) as string[];
   const recent = recentLooks(run.id);
   const stats = taste();
-  const liked = describeTaste(stats, ['composition', 'personality', 'heading font', 'body font', 'device', 'logo', 'align', 'case', 'ground', 'decor']);
+  const liked = describeTaste(stats, ['composition', 'personality', 'heading font', 'body font', 'device', 'logo', 'align', 'case', 'ground', 'decor', 'type', 'color slides', 'numbers']);
   const corrections = tasteCorrections();
   const parts: ContentPart[] = [
     {

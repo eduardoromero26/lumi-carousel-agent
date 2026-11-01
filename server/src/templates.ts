@@ -3,7 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import sharp, { type Sharp } from 'sharp';
 import { SLIDE } from './config.js';
-import { contrast, luminance, type DesignSystem, type Layout } from './design.js';
+import { contrast, luminance, paletteFor, type DesignSystem, type Layout } from './design.js';
 import type { Gimp } from './gimp.js';
 import type { Asset, Photo, Run, SlidePlan } from './run.js';
 
@@ -384,7 +384,7 @@ export type Built = {
   align: 'center' | 'left';
 };
 
-type Part = { kind: 'eyebrow' | 'headline' | 'body' | 'swipe' | 'button'; name: string; w: number; h: number; y: number; top: number };
+type Part = { kind: 'number' | 'eyebrow' | 'headline' | 'body' | 'swipe' | 'button'; name: string; w: number; h: number; y: number; top: number };
 
 // Builds one slide from its template in the GIMP image already open (a blank slide).
 export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> {
@@ -401,9 +401,10 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
   const left = system.align === 'left';
   const place = left ? '_left' : '_center';
   const R = system.radius;
-  const ground = system.base;
-  const ink = system.ink;
-  const accentText = contrast(system.accent, ground) >= 3 ? system.accent : ink;
+  const pal = paletteFor(system, layout);
+  const ground = pal.ground;
+  const ink = pal.ink;
+  const accentText = contrast(pal.accent, ground) >= 3 ? pal.accent : ink;
   const logo = pickLogo(run, ground);
   const heroLogo = !!logo && layout === 'cta' && !photo;
   const logoScale = tweaks.logoScale ?? 1;
@@ -419,7 +420,7 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
 
   let textScale = 1;
   for (let attempt = 0; ; attempt++) {
-    const parts = await measure(gimp, input, layout, textScale, accentText);
+    const parts = await measure(gimp, input, layout, textScale, accentText, pal);
     const total = parts.reduce((sum, p, i) => sum + p.h + (i ? p.top : 0), 0);
     const last = attempt === 3;
 
@@ -662,33 +663,34 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
       }
     }
 
-    const groundFile = await groundSlice(run, system, slide.n, dir);
+    // A color slide is its own block: the continuous ground would cover it.
+    const groundFile = pal.colored ? undefined : await groundSlice(run, system, slide.n, dir);
     if (groundFile) code.push(`_image('Ground', ${py(groundFile)}, 0, 0, ${W}, ${H}, _bgpos())`);
 
     for (const p of parts) {
       if (p.kind === 'eyebrow' && pill) {
         const w = p.w + 56;
         const x = left ? M : Math.round(W / 2 - w / 2);
-        code.push(`_shape('Label', ${x}, ${p.y}, ${w}, ${p.h}, ${py(system.accent)}, ${corner(R, p.h)}, _below(_get('Eyebrow')))`);
+        code.push(`_shape('Label', ${x}, ${p.y}, ${w}, ${p.h}, ${py(pal.accent)}, ${corner(R, p.h)}, _below(_get('Eyebrow')))`);
         code.push(`_get('Eyebrow').set_offsets(${x + 28}, ${p.y + 15})`);
       } else if (p.kind === 'button') {
         const w = Math.min(TEXT_W, p.w + 120);
         const x = left ? M : Math.round(W / 2 - w / 2);
-        code.push(`_shape('Button', ${x}, ${p.y}, ${w}, ${p.h}, ${py(system.accent)}, ${corner(R, p.h)}, _below(_get('Button text')))`);
+        code.push(`_shape('Button', ${x}, ${p.y}, ${w}, ${p.h}, ${py(pal.accent)}, ${corner(R, p.h)}, _below(_get('Button text')))`);
         if (system.button === 'outline') code.push(`_shape('Button fill', ${x + 4}, ${p.y + 4}, ${w - 8}, ${p.h - 8}, ${py(ground)}, ${Math.max(0, corner(R, p.h) - 4)}, _below(_get('Button text')))`);
         code.push(`_bt = _get('Button text')
 _bt.set_offsets(int(${x + w / 2} - _bt.get_width() / 2), ${p.y + 32})`);
       } else {
         code.push(`${place}(_get(${py(p.name)}), ${p.y})`);
         if (p.kind === 'headline' && underline) {
-          code.push(`_shape('Underline', ${left ? M : W / 2 - 60}, int(${p.y} + _get('Headline').get_height() + 22), 120, 10, ${py(system.accent)}, ${Math.min(5, R)}, _below(_get('Headline')))`);
+          code.push(`_shape('Underline', ${left ? M : W / 2 - 60}, int(${p.y} + _get('Headline').get_height() + 22), 120, 10, ${py(pal.accent)}, ${Math.min(5, R)}, _below(_get('Headline')))`);
         }
       }
     }
 
     // The recurring frame device.
     if (system.device === 'frame') {
-      code.push(`_fr = _layer('Frame')\n_img.select_rectangle(Gimp.ChannelOps.REPLACE, 36, 36, ${W - 72}, ${H - 72})\n_img.select_rectangle(Gimp.ChannelOps.SUBTRACT, 42, 42, ${W - 84}, ${H - 84})\nGimp.context_set_foreground(_color(${py(system.accent)}))\n_fr.edit_fill(Gimp.FillType.FOREGROUND)\nGimp.Selection.none(_img)`);
+      code.push(`_fr = _layer('Frame')\n_img.select_rectangle(Gimp.ChannelOps.REPLACE, 36, 36, ${W - 72}, ${H - 72})\n_img.select_rectangle(Gimp.ChannelOps.SUBTRACT, 42, 42, ${W - 84}, ${H - 84})\nGimp.context_set_foreground(_color(${py(pal.accent)}))\n_fr.edit_fill(Gimp.FillType.FOREGROUND)\nGimp.Selection.none(_img)`);
     }
 
     // Logo: the same place on every slide; on a text-only call to action it is the hero.
@@ -732,7 +734,7 @@ _bt.set_offsets(int(${x + w / 2} - _bt.get_width() / 2), ${p.y + 32})`);
 }
 
 // Creates the text layers on a cleared slide and measures them in GIMP.
-async function measure(gimp: Gimp, input: SlideInput, layout: Layout, scale: number, accentText: string): Promise<Part[]> {
+async function measure(gimp: Gimp, input: SlideInput, layout: Layout, scale: number, accentText: string, pal: ReturnType<typeof paletteFor>): Promise<Part[]> {
   const { run, system, slide } = input;
   const tweaks = slide.tweaks ?? {};
   const pill = system.device === 'pill_label';
@@ -740,7 +742,9 @@ async function measure(gimp: Gimp, input: SlideInput, layout: Layout, scale: num
   const bodyFont = system.gimpBody ?? 'Sans-serif';
   const bodyBold = system.gimpBodyBold ?? system.gimpHeading ?? 'Sans-serif Bold';
   const base = { poster: { head: 132, body: 44 }, cover: { head: 104, body: 40 }, photo_band: { head: 96, body: 40 }, product: { head: 84, body: 38 }, hero: { head: 92, body: 38 }, cta: { head: 92, body: 40 } }[layout];
-  const head = Math.round(base.head * scale * (tweaks.headScale ?? 1));
+  // Loud: the headline is the ad, poster-sized where the slide opens or closes the set.
+  const loud = system.typeScale === 'loud' ? (layout === 'cover' || layout === 'poster' || layout === 'cta' ? 1.3 : 1.15) : 1;
+  const head = Math.round(base.head * loud * scale * (tweaks.headScale ?? 1));
   const body = Math.round(base.body * scale * (tweaks.bodyScale ?? 1));
   const perLine = (px: number) => Math.max(8, Math.floor(TEXT_W / (px * 0.56)));
   const headline = system.headlineCase === 'upper' ? slide.headline.toUpperCase() : slide.headline;
@@ -748,18 +752,23 @@ async function measure(gimp: Gimp, input: SlideInput, layout: Layout, scale: num
   const code: string[] = ['_img = Gimp.get_images()[0]', LIB];
   code.push("for _old in [_l for _l in _img.get_layers() if _l.get_name() != 'Background']:\n    _img.remove_layer(_old)");
   if (system.align === 'left') code.push('_J = Gimp.TextJustification.LEFT');
-  code.push(`Gimp.context_set_background(_color(${py(system.base)}))\n_get('Background').edit_fill(Gimp.FillType.BACKGROUND)`);
+  code.push(`Gimp.context_set_background(_color(${py(pal.ground)}))\n_get('Background').edit_fill(Gimp.FillType.BACKGROUND)`);
   code.push('_m = {}');
   const add = (name: string, call: string) => code.push(`_t = ${call}\n_m[${py(name)}] = [_t.get_width(), _t.get_height()]`);
   const kinds: Omit<Part, 'w' | 'h' | 'y'>[] = [];
-  if (slide.eyebrow?.trim()) {
-    add('Eyebrow', `_text('Eyebrow', ${py(slide.eyebrow.trim().toUpperCase())}, ${py(bodyBold)}, ${Math.round(30 * Math.max(0.85, scale))}, ${py(pill ? system.accentInk : accentText)}, ${TEXT_W - 80}, 0.0, 0.12)`);
-    kinds.push({ kind: 'eyebrow', name: 'Eyebrow', top: 0 });
+  const order = run.plan ? run.plan.slides.findIndex((s) => s.n === slide.n) : -1;
+  if (system.numbers && order > 0 && run.plan && order < run.plan.slides.length - 1 && layout !== 'poster') {
+    add('Number', `_text('Number', ${py(String(order).padStart(2, '0'))}, ${py(headingFont)}, ${Math.round(150 * Math.max(0.8, scale))}, ${py(accentText)}, 600, -0.3, -0.02)`);
+    kinds.push({ kind: 'number', name: 'Number', top: 0 });
   }
-  add('Headline', `_text('Headline', ${py(balance(headline, perLine(head), 3))}, ${py(headingFont)}, ${head}, ${py(system.ink)}, ${TEXT_W}, -0.18, ${system.tracking}, 44)`);
+  if (slide.eyebrow?.trim()) {
+    add('Eyebrow', `_text('Eyebrow', ${py(slide.eyebrow.trim().toUpperCase())}, ${py(bodyBold)}, ${Math.round(30 * Math.max(0.85, scale))}, ${py(pill ? pal.accentInk : accentText)}, ${TEXT_W - 80}, 0.0, 0.12)`);
+    kinds.push({ kind: 'eyebrow', name: 'Eyebrow', top: kinds.length ? 6 : 0 });
+  }
+  add('Headline', `_text('Headline', ${py(balance(headline, perLine(head), 3))}, ${py(headingFont)}, ${head}, ${py(pal.ink)}, ${TEXT_W}, -0.18, ${system.tracking}, 44)`);
   kinds.push({ kind: 'headline', name: 'Headline', top: pill ? 26 : 18 });
   if (slide.body?.trim()) {
-    add('Body', `_text('Body', ${py(balance(slide.body.trim(), perLine(body), 3))}, ${py(bodyFont)}, ${body}, ${py(system.ink)}, ${TEXT_W - 40}, 0.05, 0.0, 26)\n_t.set_opacity(90)`);
+    add('Body', `_text('Body', ${py(balance(slide.body.trim(), perLine(body), 3))}, ${py(bodyFont)}, ${body}, ${py(pal.ink)}, ${TEXT_W - 40}, 0.05, 0.0, 26)\n_t.set_opacity(90)`);
     kinds.push({ kind: 'body', name: 'Body', top: 28 });
   }
   if (layout === 'cover' && run.plan && run.plan.slides.length > 1) {
@@ -767,7 +776,7 @@ async function measure(gimp: Gimp, input: SlideInput, layout: Layout, scale: num
     kinds.push({ kind: 'swipe', name: 'Swipe', top: 34 });
   }
   if (layout === 'cta' && slide.button?.trim()) {
-    add('Button text', `_text('Button text', ${py(slide.button.trim())}, ${py(bodyBold)}, 40, ${py(system.button === 'outline' ? accentText : system.accentInk)}, ${TEXT_W - 160}, 0.0, 0.0, 28)`);
+    add('Button text', `_text('Button text', ${py(slide.button.trim())}, ${py(bodyBold)}, 40, ${py(system.button === 'outline' ? accentText : pal.accentInk)}, ${TEXT_W - 160}, 0.0, 0.0, 28)`);
     kinds.push({ kind: 'button', name: 'Button text', top: 40 });
   }
   code.push('_result = _m');

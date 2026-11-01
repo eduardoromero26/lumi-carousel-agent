@@ -35,6 +35,9 @@ export function featuresOf(run: Run, target: string): Features {
   put('case', s?.headlineCase);
   put('ground', s ? (s.ground === 'gradient' ? 'gradient' : 'flat') + (s.grain ? ' + grain' : '') : undefined);
   put('decor', s ? (s.decor?.elementFile ? 'element' : s.decor?.textureFile ? 'texture' : 'none') : undefined);
+  put('type', s?.typeScale);
+  put('color slides', s?.colorSlides);
+  put('numbers', s ? (s.numbers ? 'yes' : 'no') : undefined);
   put('format', run.plan?.format);
   const n = target.startsWith('slide:') ? Number(target.slice(6)) : NaN;
   const slide = run.plan?.slides.find((x) => x.n === n);

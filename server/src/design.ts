@@ -43,6 +43,12 @@ export type DesignSystem = {
   personality?: Personality;
   // Where the photo and the text go on every photo slide (templates.ts).
   composition: Composition;
+  // "loud": poster-sized headlines (an ad that stops the scroll); "calm": quieter, for premium brands.
+  typeScale: 'calm' | 'loud';
+  // Slides whose ground is the accent instead of the base: a color block that opens or closes the set.
+  colorSlides: 'none' | 'cover' | 'cta' | 'both';
+  // A big "01", "02"… above the text of the middle slides: reasons, steps or products in order.
+  numbers: boolean;
   decor?: Decor;
 };
 
@@ -169,8 +175,20 @@ export function normalizeSystem(raw: Partial<DesignSystem>, fallbackColors: stri
     siteNotes: typeof raw.siteNotes === 'string' ? raw.siteNotes : undefined,
     personality: PERSONALITIES.includes(raw.personality as Personality) ? raw.personality : 'clean',
     composition: COMPOSITIONS.includes(raw.composition as Composition) ? (raw.composition as Composition) : 'stacked',
+    typeScale: raw.typeScale === 'calm' ? 'calm' : 'loud',
+    colorSlides: raw.colorSlides === 'cover' || raw.colorSlides === 'cta' || raw.colorSlides === 'both' ? raw.colorSlides : 'none',
+    numbers: raw.numbers === true,
     decor: normalizeDecor(raw.decor),
   };
+}
+
+// The colors of one slide: a color slide swaps them, the accent becomes the ground and
+// the base the accent (labels, the button), so the set keeps the same two colors.
+export function paletteFor(s: DesignSystem, layout: string): { ground: string; ink: string; accent: string; accentInk: string; colored: boolean } {
+  const colored = (layout === 'cover' && (s.colorSlides === 'cover' || s.colorSlides === 'both')) || (layout === 'cta' && (s.colorSlides === 'cta' || s.colorSlides === 'both'));
+  return colored
+    ? { ground: s.accent, ink: s.accentInk, accent: s.base, accentInk: s.ink, colored }
+    : { ground: s.base, ink: s.ink, accent: s.accent, accentInk: s.accentInk, colored };
 }
 
 const COMPOSITION_NOTES: Record<Composition, string> = {
@@ -183,7 +201,10 @@ const COMPOSITION_NOTES: Record<Composition, string> = {
 export function describeSystem(s: DesignSystem): string {
   return [
     `Headlines ${s.headingFont} ${s.headingWeight}${s.headlineCase === 'upper' ? ' in capitals' : ''}, text ${s.bodyFont} ${s.bodyWeight}.`,
-    `Every slide on the same ground ${s.base} with ${s.ink} text; accent ${s.accent} (text on it ${s.accentInk}) only for the device, labels and the button.`,
+    s.colorSlides === 'none'
+      ? `Every slide on the same ground ${s.base} with ${s.ink} text; accent ${s.accent} (text on it ${s.accentInk}) for the device, labels and the button.`
+      : `Slides on the ground ${s.base} with ${s.ink} text, accent ${s.accent} for the device, labels and the button; ${s.colorSlides === 'both' ? 'the cover and the call to action are' : `the ${s.colorSlides === 'cover' ? 'cover' : 'call to action'} is`} a color block on ${s.accent} (text ${s.accentInk}, labels and button in ${s.base}), on purpose.`,
+    `${s.typeScale === 'loud' ? 'Poster-sized headlines' : 'Quiet, smaller headlines'}${s.numbers ? '; the middle slides carry a big number (01, 02…) above their text' : ''}.`,
     `Brand device: ${s.device.replace('_', ' ')}. ${s.align === 'left' ? `Logo at the ${s.logoPosition === 'top_center' ? 'top' : 'bottom'} on the left margin, text aligned left on x = 80` : `Logo ${s.logoPosition.replace('_', ' ')}, everything centered on x = 540`}, margins 80 px.`,
     COMPOSITION_NOTES[s.composition],
     `${s.products === 'loose' ? 'Products loose on the ground, no cards' : `Products on cards`}; corners ${s.radius ? `${s.radius} px` : 'square'}; ${s.ground === 'gradient' ? `gradient ground ${s.base} → ${s.ground2}` : 'flat ground'}${s.grain ? ' with grain' : ''}; ${s.button} buttons.`,

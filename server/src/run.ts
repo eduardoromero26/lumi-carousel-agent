@@ -1,0 +1,240 @@
+import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { mkdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+import { config } from './config.js';
+import type { DesignSystem, Tweaks } from './design.js';
+import type { Site } from './site.js';
+
+export type Agent = 'analyst' | 'director' | 'designer' | 'critic' | 'motion' | 'system';
+
+export type RunEvent = {
+  seq: number;
+  at: string;
+  type: 'status' | 'assets' | 'thought' | 'tool' | 'snapshot' | 'review' | 'slide' | 'video' | 'done' | 'error';
+  agent: Agent;
+  text: string;
+  slide?: number;
+  data?: unknown;
+};
+
+export type Brief = {
+  business?: string;
+  url?: string;
+  goal?: string;
+  language?: string;
+  audience?: string;
+  brandColors?: string[];
+};
+
+// A backdrop is a website image with text baked in: it only works softened and
+// under a shade, as the background behind the slide's own text.
+// A cutout is a product shown whole instead of covering the slide: on a transparent
+// background (over the brand color) or on a plain studio background, its "matte".
+// "content" is where the product sits in the file (0..1, its margins trimmed) and
+// "cropped" a studio shot whose product is cut by the file's own edge.
+export type Photo = {
+  id: string;
+  path: string;
+  note?: string;
+  backdrop?: boolean;
+  cutout?: boolean;
+  matte?: string;
+  content?: { x1: number; y1: number; x2: number; y2: number };
+  cropped?: boolean;
+  // The website asset it comes from (none for the owner's uploads).
+  asset?: string;
+};
+
+export type Asset = {
+  id: string;
+  path: string;
+  source: string;
+  alt: string;
+  hint: string;
+  width: number;
+  height: number;
+  transparent: boolean;
+  kind?: 'logo' | 'icon' | 'product' | 'food' | 'place' | 'people' | 'work' | 'banner' | 'graphic' | 'other';
+  description?: string;
+  hasText?: boolean;
+  quality?: number;
+  // Text of the card the image sits in on the site (a product's name and price).
+  context?: string;
+  // Logos: the flat background color when the file has one, and how light the mark is (0..1).
+  matte?: string;
+  tone?: number;
+  // A transparent logo that is a solid shape (an app icon, a badge): it carries its own ground.
+  badge?: boolean;
+};
+
+// The models sometimes answer the hashtags as one string ("#a #b") instead of a list.
+export function hashtagList(raw: unknown): string[] {
+  const all = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? raw.split(/[\s,]+/) : [];
+  return all.map((h) => h.trim()).filter(Boolean).map((h) => (h.startsWith('#') ? h : `#${h}`));
+}
+
+export type SlidePlan = {
+  n: number;
+  role: string;
+  photo: string | null;
+  headline: string;
+  body: string;
+  visual: string;
+  focus?: { x: number; y: number };
+  // What must stay visible in the photo, for SAM ("taco plate").
+  subject?: string;
+  // The director wants the product isolated from its photo's background (SAM mask).
+  cut_out?: boolean;
+  // The template the slide is built with, a short label above the headline and,
+  // on the call to action, the button text.
+  layout?: 'cover' | 'product' | 'hero' | 'photo_band' | 'poster' | 'cta';
+  eyebrow?: string;
+  button?: string;
+  // Where SAM found the subject: 0..1 of the photo, and in slide pixels for the current frame.
+  subjectNorm?: { x1: number; y1: number; x2: number; y2: number };
+  subjectBox?: { x1: number; y1: number; x2: number; y2: number };
+  // Faces in the photo (0..1) and on the slide; text must never cover them.
+  facesNorm?: { x1: number; y1: number; x2: number; y2: number }[];
+  faces?: { x1: number; y1: number; x2: number; y2: number }[];
+  // Where the Photo layer sits now (the designer can reframe it).
+  frame?: { w: number; h: number; x: number; y: number };
+  // The photo SAM looked at (subjectNorm and facesNorm belong to it).
+  seen?: string;
+  // The template's settings for this slide, chosen by the fixer.
+  tweaks?: Tweaks;
+};
+
+export type Plan = {
+  // What the business is and the kind of carousel that sells it: a store gets a catalog.
+  business_type?: string;
+  format?: 'catalog' | 'benefits' | 'proof' | 'how_it_works' | 'offer';
+  concept: string;
+  why: string;
+  slides: SlidePlan[];
+  caption: string;
+  hashtags: string[];
+};
+
+export type RunStatus = 'running' | 'done' | 'failed';
+
+// Events after which the run is saved to run.json, so a server restart doesn't
+// lose a finished carousel (it can still be edited or animated).
+const SAVE_ON = new Set<RunEvent['type']>(['assets', 'slide', 'video', 'done', 'error']);
+
+export class Run {
+  readonly id: string;
+  dir: string;
+  status: RunStatus = 'running';
+  photos: Photo[] = [];
+  assets: Asset[] = [];
+  logo?: Asset;
+  // White or light version of the logo, for dark backgrounds.
+  logoLight?: Asset;
+  site?: Site;
+  // The carousel's visual system, and its description for the designer and critic.
+  system?: DesignSystem;
+  styleNotes?: string;
+  plan?: Plan;
+  // templateIssues: what the critic found that no action of the fixer resolves.
+  slides: { n: number; file: string; approved: boolean; rounds: number; templateIssues?: string[] }[] = [];
+  events: RunEvent[] = [];
+  // Spend of this run in US$ (model tokens, images, SAM), saved with the run.
+  cost = 0;
+  syncCost: () => void = () => {};
+  private listeners = new Set<(e: RunEvent) => void>();
+
+  constructor(
+    readonly brief: Brief,
+    id = randomUUID().slice(0, 8),
+  ) {
+    this.id = id;
+    this.dir = path.join(config.runsDir, id);
+  }
+
+  static async load(id: string): Promise<Run | undefined> {
+    if (!/^[a-z0-9-]+$/i.test(id)) return undefined;
+    const raw = await readFile(path.join(config.runsDir, id, 'run.json'), 'utf8').catch(() => null);
+    if (!raw) return undefined;
+    const saved = JSON.parse(raw) as ReturnType<Run['toJson']>;
+    const run = new Run(saved.brief, id);
+    run.status = saved.status === 'running' ? 'failed' : saved.status;
+    run.photos = saved.photos;
+    run.assets = saved.assets;
+    run.logo = run.assets.find((a) => a.id === saved.logo);
+    run.logoLight = run.assets.find((a) => a.id === saved.logoLight);
+    run.site = saved.site;
+    run.styleNotes = saved.styleNotes;
+    run.system = saved.system;
+    run.plan = saved.plan;
+    run.slides = saved.slides;
+    run.events = saved.events;
+    run.cost = saved.cost ?? 0;
+    return run;
+  }
+
+  toJson() {
+    return {
+      id: this.id,
+      status: this.status,
+      brief: this.brief,
+      photos: this.photos,
+      assets: this.assets,
+      logo: this.logo?.id,
+      logoLight: this.logoLight?.id,
+      site: this.site,
+      styleNotes: this.styleNotes,
+      system: this.system,
+      plan: this.plan,
+      slides: this.slides,
+      events: this.events,
+      cost: this.cost,
+    };
+  }
+
+  async init(): Promise<void> {
+    await mkdir(path.join(this.dir, 'photos'), { recursive: true });
+  }
+
+  // Also keeps the feed's index up to date (set by the server).
+  static onSave: (run: Run) => void = () => {};
+
+  // The owner pressed Stop: the next event the agents emit ends the run.
+  stopRequested = false;
+
+  emit(type: RunEvent['type'], agent: Agent, text: string, extra: Partial<RunEvent> = {}): void {
+    // It stays on until the run ends, so no agent's own error handling can swallow it.
+    if (this.stopRequested && type !== 'error' && type !== 'done') throw new Error('Stopped by the owner.');
+    this.syncCost();
+    const event: RunEvent = { seq: this.events.length, at: new Date().toISOString(), type, agent, text, ...extra };
+    this.events.push(event);
+    for (const listener of this.listeners) listener(event);
+    if (SAVE_ON.has(type)) {
+      writeFileSync(path.join(this.dir, 'run.json'), JSON.stringify(this.toJson()));
+      Run.onSave(this);
+    }
+    console.log(`[${this.id}] ${agent}/${type}${event.slide ? ` #${event.slide}` : ''}: ${text.slice(0, 160)}`);
+  }
+
+  subscribe(listener: (e: RunEvent) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  fileUrl(file: string): string {
+    return `/files/${this.id}/${path.relative(this.dir, file).split(path.sep).join('/')}`;
+  }
+
+  summary() {
+    return {
+      id: this.id,
+      status: this.status,
+      brief: this.brief,
+      photos: this.photos.map((p) => ({ id: p.id, note: p.note, backdrop: p.backdrop, cutout: p.cutout, matte: p.matte, url: this.fileUrl(p.path) })),
+      assets: this.assets.map((a) => ({ id: a.id, kind: a.kind, description: a.description, url: this.fileUrl(a.path) })),
+      logo: this.logo?.id,
+      plan: this.plan,
+      slides: this.slides.map((s) => ({ ...s, url: `/files/${this.id}/${s.file}` })),
+    };
+  }
+}

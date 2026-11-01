@@ -1,0 +1,802 @@
+import { existsSync } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import sharp, { type Sharp } from 'sharp';
+import { SLIDE } from './config.js';
+import { contrast, luminance, type DesignSystem, type Layout } from './design.js';
+import type { Gimp } from './gimp.js';
+import type { Asset, Photo, Run, SlidePlan } from './run.js';
+
+// The agency's carousel templates, built in GIMP with real, editable layers: the
+// system decides fonts and colors, the template decides where things go, and the
+// code measures it all (text first, then the photo in the space that is left).
+// Everything is centered on x = 540 with 80 px margins; nothing is placed by eye.
+const W = SLIDE.width;
+const H = SLIDE.height;
+const M = 80;
+const TEXT_W = W - 2 * M;
+
+// Python helpers that run inside GIMP before every template.
+const LIB = String.raw`
+def _color(_hex):
+    return Gegl.Color.new(_hex)
+
+def _get(_name):
+    _f = [_l for _l in _img.get_layers() if _l.get_name() == _name]
+    return _f[0] if _f else None
+
+def _bgpos():
+    return _img.get_item_position(_get('Background'))
+
+def _layer(_name, _pos=0):
+    _l = Gimp.Layer.new(_img, _name, ${W}, ${H}, Gimp.ImageType.RGBA_IMAGE, 100, Gimp.LayerMode.NORMAL)
+    _img.insert_layer(_l, None, _pos)
+    _l.fill(Gimp.FillType.TRANSPARENT)
+    return _l
+
+def _shape(_name, _x, _y, _w, _h, _hex, _radius=0, _pos=0, _opacity=100):
+    _l = _layer(_name, _pos)
+    if _radius > 0:
+        _img.select_round_rectangle(Gimp.ChannelOps.REPLACE, _x, _y, _w, _h, _radius, _radius)
+    else:
+        _img.select_rectangle(Gimp.ChannelOps.REPLACE, _x, _y, _w, _h)
+    Gimp.context_set_foreground(_color(_hex))
+    _l.edit_fill(Gimp.FillType.FOREGROUND)
+    Gimp.Selection.none(_img)
+    _l.set_opacity(_opacity)
+    return _l
+
+def _image(_name, _file, _x, _y, _w, _h, _pos=0):
+    _l = Gimp.file_load_layer(Gimp.RunMode.NONINTERACTIVE, _img, Gio.File.new_for_path(_file))
+    _l.set_name(_name)
+    _img.insert_layer(_l, None, _pos)
+    Gimp.context_set_interpolation(Gimp.InterpolationType.CUBIC)
+    _l.scale(_w, _h, False)
+    _l.set_offsets(_x, _y)
+    return _l
+
+def _round_mask(_l, _x, _y, _w, _h, _radius):
+    _img.select_round_rectangle(Gimp.ChannelOps.REPLACE, _x, _y, _w, _h, _radius, _radius)
+    _l.add_mask(_l.create_mask(Gimp.AddMaskType.SELECTION))
+    Gimp.Selection.none(_img)
+
+_J = Gimp.TextJustification.CENTER
+
+def _text(_name, _content, _font, _size, _hex, _maxw, _line=0.0, _spacing=0.0, _min=24):
+    _f = Gimp.Font.get_by_name(_font)
+    while True:
+        _t = Gimp.TextLayer.new(_img, _content, _f, float(_size), Gimp.Unit.pixel())
+        _img.insert_layer(_t, None, 0)
+        _t.set_justification(_J)
+        _t.set_line_spacing(_line * _size)
+        _t.set_letter_spacing(_spacing * _size)
+        _t.set_color(_color(_hex))
+        if _t.get_width() <= _maxw or _size <= _min:
+            break
+        _img.remove_layer(_t)
+        _size = int(_size * 0.93)
+    _t.set_name(_name)
+    return _t
+
+def _center(_l, _y):
+    _l.set_offsets(int(${W / 2} - _l.get_width() / 2), int(_y))
+    return _y + _l.get_height()
+
+def _left(_l, _y):
+    _l.set_offsets(${M}, int(_y))
+    return _y + _l.get_height()
+
+def _below(_l):
+    return _img.get_item_position(_l) + 1
+`;
+
+// Balanced line breaks: at most `max` lines, each as close in length as possible.
+export function balance(text: string, perLine: number, max = 3): string {
+  const words = text.trim().split(/\s+/);
+  const total = text.trim().length;
+  const lines = Math.min(max, Math.max(1, Math.ceil(total / perLine)), words.length);
+  if (lines === 1) return words.join(' ');
+  let best: string[][] = [words];
+  let bestScore = Infinity;
+  const split = (rest: string[], k: number, acc: string[][]) => {
+    if (k === 1) {
+      const all = [...acc, rest];
+      const lens = all.map((l) => l.join(' ').length);
+      const score = Math.max(...lens) * 10 - Math.min(...lens) + (all.at(-1)!.length === 1 && words.length > 3 ? 40 : 0);
+      if (score < bestScore) {
+        bestScore = score;
+        best = all;
+      }
+      return;
+    }
+    for (let i = 1; i <= rest.length - k + 1; i++) split(rest.slice(i), k - 1, [...acc, rest.slice(0, i)]);
+  };
+  split(words, lines, []);
+  return best.map((l) => l.join(' ')).join('\n');
+}
+
+const py = (v: unknown) => JSON.stringify(v);
+
+async function gradient(file: string, color: string, from: 'bottom' | 'top', start: number): Promise<void> {
+  const [y1, y2] = from === 'bottom' ? [start / H, 1] : [start / H, 0];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs><linearGradient id="g" x1="0" y1="${y1}" x2="0" y2="${y2}">
+    <stop offset="0" stop-color="${color}" stop-opacity="0"/><stop offset="0.45" stop-color="${color}" stop-opacity="0.72"/><stop offset="1" stop-color="${color}" stop-opacity="0.96"/>
+  </linearGradient></defs><rect width="${W}" height="${H}" fill="url(#g)"/></svg>`;
+  await sharp(Buffer.from(svg)).png().toFile(file);
+}
+
+async function shadow(file: string, width: number): Promise<void> {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width + 120}" height="120"><ellipse cx="${(width + 120) / 2}" cy="60" rx="${width / 2}" ry="22" fill="#000" fill-opacity="0.35"/></svg>`;
+  await sharp(Buffer.from(svg)).blur(14).png().toFile(file);
+}
+
+type Fit = { x: number; y: number; w: number; h: number };
+export type Rect = { x1: number; y1: number; x2: number; y2: number };
+
+const FULL: Rect = { x1: 0, y1: 0, x2: 1, y2: 1 };
+// The card a transparent cutout sits on, so every product slide has the same card.
+const CARD_LIGHT = '#f4f4f4';
+// Every product card has the same size and place: the text below takes what is left.
+// The hero shows the product bigger, loose on the ground.
+const CARD = { product: 620, hero: 760, cta: 440 };
+
+// Labels and buttons follow the brand's corners: round enough becomes a pill.
+const corner = (radius: number, h: number) => (radius >= 24 ? Math.round(h / 2) : radius);
+
+// The brand's ground across the whole carousel: one wide gradient (with grain) cut in
+// slices, so swiping reads as one continuous surface; the decor texture is blended in.
+async function groundSlice(run: Run, system: DesignSystem, n: number, dir: string): Promise<string | undefined> {
+  const texture = system.decor?.textureFile;
+  if (system.ground !== 'gradient' && !system.grain && !texture) return undefined;
+  const count = Math.max(1, run.plan?.slides.length ?? 1);
+  const pano = path.join(dir, 'ground.png');
+  if (!existsSync(pano)) {
+    const w = W * count;
+    const b = system.base;
+    const g = system.ground2 ?? system.base;
+    const blobs = Array.from({ length: count }, (_, i) => `<ellipse cx="${Math.round(W * (i + (i % 2 ? 0.25 : 0.75)))}" cy="${i % 2 ? H * 0.8 : H * 0.25}" rx="${W * 0.7}" ry="${H * 0.45}" fill="url(#blob)"/>`).join('');
+    const grain = system.grain
+      ? `<filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="${w}" height="${H}" filter="url(#n)" opacity="0.12"/>`
+      : '';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${H}"><defs>
+      <linearGradient id="lin" x1="0" y1="0" x2="1" y2="0.3"><stop offset="0" stop-color="${b}"/><stop offset="0.5" stop-color="${g}"/><stop offset="1" stop-color="${b}"/></linearGradient>
+      <radialGradient id="blob"><stop offset="0" stop-color="${g}" stop-opacity="0.7"/><stop offset="1" stop-color="${g}" stop-opacity="0"/></radialGradient>
+    </defs><rect width="${w}" height="${H}" fill="url(#lin)"/>${system.ground === 'gradient' ? blobs : ''}${grain}</svg>`;
+    await sharp(Buffer.from(svg)).png().toFile(pano);
+  }
+  const out = path.join(dir, `s${n}-ground.png`);
+  const plain = await sharp(pano).extract({ left: Math.min(n - 1, count - 1) * W, top: 0, width: W, height: H }).png().toBuffer();
+  if (texture && system.decor) {
+    // As much texture as the text allows, mirrored on every second slide so it never repeats.
+    for (const k of [1, 0.5]) {
+      const tex = await sharp(texture).resize(W, H, { fit: 'cover' }).flop(n % 2 === 0).removeAlpha().ensureAlpha(system.decor.strength * k).png().toBuffer();
+      const mixed = await sharp(plain).composite([{ input: tex, blend: system.decor.blend }]).png().toBuffer();
+      if (await readable(mixed, system.ink)) {
+        await sharp(mixed).toFile(out);
+        return out;
+      }
+    }
+  }
+  await sharp(plain).toFile(out);
+  return out;
+}
+
+// Text reads on a surface when it holds 4.5:1 on its average and on its lighter and
+// darker spots (one deviation away).
+async function readable(surface: Buffer, ink: string): Promise<boolean> {
+  const { channels } = await sharp(surface).stats();
+  const tone = (d: number) => '#' + channels.slice(0, 3).map((c) => clamp(Math.round(c.mean + d * c.stdev), 0, 255).toString(16).padStart(2, '0')).join('');
+  return [-1, 0, 1].every((d) => contrast(tone(d), ink) >= 4.5);
+}
+
+function mix(a: string, b: string, t: number): string {
+  const c = (hex: string, i: number) => parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16);
+  return '#' + [0, 1, 2].map((i) => Math.round(c(a, i) * (1 - t) + c(b, i) * t).toString(16).padStart(2, '0')).join('');
+}
+
+// A soft light of the accent behind the text, as strong as the text allows.
+async function glow(file: string, color: string, base: string, ink: string, cx: number, cy: number): Promise<boolean> {
+  const alpha = [0.28, 0.16].find((a) => contrast(mix(base, color, a), ink) >= 4.5);
+  if (!alpha) return false;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs><radialGradient id="g"><stop offset="0" stop-color="${color}" stop-opacity="${alpha}"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></radialGradient></defs><ellipse cx="${Math.round(cx)}" cy="${Math.round(cy)}" rx="600" ry="480" fill="url(#g)"/></svg>`;
+  await sharp(Buffer.from(svg)).png().toFile(file);
+  return true;
+}
+
+// The decor element bleeds off a corner: the first corner (alternating per slide) where
+// its pixels touch neither the text, the logo nor the card. Mirrored to face inwards.
+const DECOR = 460;
+async function decorElement(file: string, n: number, avoid: Rect[], out: string): Promise<Rect | undefined> {
+  const cut = Math.round(DECOR * 0.38);
+  const corners = [
+    { x: W - DECOR + cut, y: -cut, turn: (s: Sharp) => s },
+    { x: -cut, y: H - DECOR + cut, turn: (s: Sharp) => s.rotate(180) },
+    { x: -cut, y: -cut, turn: (s: Sharp) => s.flop() },
+    { x: W - DECOR + cut, y: H - DECOR + cut, turn: (s: Sharp) => s.flip() },
+  ];
+  const order = n % 2 ? [0, 1, 2, 3] : [1, 0, 3, 2];
+  for (const i of order) {
+    const c = corners[i];
+    const { data, info } = await c.turn(sharp(file).resize(DECOR, DECOR, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    // The element's own pixels on the slide, not its square.
+    let box: Rect | undefined;
+    for (let y = 0; y < info.height; y++) {
+      for (let x = 0; x < info.width; x++) {
+        if (data[(y * info.width + x) * 4 + 3] < 24) continue;
+        const sx = c.x + x;
+        const sy = c.y + y;
+        if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
+        box = box ? { x1: Math.min(box.x1, sx), y1: Math.min(box.y1, sy), x2: Math.max(box.x2, sx + 1), y2: Math.max(box.y2, sy + 1) } : { x1: sx, y1: sy, x2: sx + 1, y2: sy + 1 };
+      }
+    }
+    if (!box || avoid.some((a) => overlap(box!, { x1: a.x1 - 28, y1: a.y1 - 28, x2: a.x2 + 28, y2: a.y2 + 28 }) > 0)) continue;
+    const vis = { x1: Math.max(0, c.x), y1: Math.max(0, c.y), x2: Math.min(W, c.x + DECOR), y2: Math.min(H, c.y + DECOR) };
+    await sharp(data, { raw: info })
+      .extract({ left: vis.x1 - c.x, top: vis.y1 - c.y, width: vis.x2 - vis.x1, height: vis.y2 - vis.y1 })
+      .png()
+      .toFile(out);
+    return vis;
+  }
+  return undefined;
+}
+const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+async function size(file: string): Promise<{ width: number; height: number }> {
+  const { width = 1, height = 1 } = await sharp(file).metadata();
+  return { width, height };
+}
+
+// Covering the whole slide around a focus.
+function cover(img: { width: number; height: number }, focus = { x: 0.5, y: 0.5 }): Fit {
+  const scale = Math.max(W / img.width, H / img.height);
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  return { x: clamp(Math.round(W / 2 - focus.x * w), W - w, 0), y: clamp(Math.round(H / 2 - focus.y * h), H - h, 0), w, h };
+}
+
+// The photo in a region with `keep` (0..1 of the photo) whole and centered: as big as
+// covering the region allows, smaller when covering would cut what must stay.
+function fitWhole(img: { width: number; height: number }, region: Rect, keep: Rect | undefined, photoScale = 1, margin = 40): Fit {
+  const rw = region.x2 - region.x1;
+  const rh = region.y2 - region.y1;
+  const k = keep ?? FULL;
+  const coverScale = Math.max(rw / img.width, rh / img.height);
+  const whole = keep ? Math.min((rw - 2 * margin) / ((k.x2 - k.x1) * img.width), (rh - 2 * margin) / ((k.y2 - k.y1) * img.height)) : coverScale;
+  const scale = Math.min(coverScale, whole) * photoScale;
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
+  const x = region.x1 + rw / 2 - ((k.x1 + k.x2) / 2) * w;
+  const y = region.y1 + rh / 2 - ((k.y1 + k.y2) / 2) * h;
+  // Bigger than the region: never show its edge. Smaller: stay inside it.
+  const place = (v: number, s: number, lo: number, len: number) => Math.round(s >= len ? clamp(v, lo + len - s, lo) : clamp(v, lo, lo + len - s));
+  return { x: place(x, w, region.x1, rw), y: place(y, h, region.y1, rh), w, h };
+}
+
+// A product's own pixels (`content`, 0..1 of the photo) contained and centered in `box`.
+function contain(img: { width: number; height: number }, box: Rect, content: Rect, pad: number, photoScale = 1): Fit {
+  const bw = box.x2 - box.x1;
+  const bh = box.y2 - box.y1;
+  const s = Math.min((bw - 2 * pad) / ((content.x2 - content.x1) * img.width), (bh - 2 * pad) / ((content.y2 - content.y1) * img.height)) * photoScale;
+  const w = Math.round(img.width * s);
+  const h = Math.round(img.height * s);
+  return { x: Math.round((box.x1 + box.x2) / 2 - ((content.x1 + content.x2) / 2) * w), y: Math.round((box.y1 + box.y2) / 2 - ((content.y1 + content.y2) / 2) * h), w, h };
+}
+
+// The director gave the middle slides one skeleton: real photos under the text
+// (photo_band) unless every one of them is a product on a card.
+function bandSkeleton(run: Run): boolean {
+  return !!run.plan?.slides.slice(1, -1).some((s) => s.layout === 'photo_band' && !run.photos.find((p) => p.id === s.photo)?.backdrop && !!s.photo);
+}
+
+function onSlide(r: Rect, f: Fit): Rect {
+  return { x1: Math.round(f.x + r.x1 * f.w), y1: Math.round(f.y + r.y1 * f.h), x2: Math.round(f.x + r.x2 * f.w), y2: Math.round(f.y + r.y2 * f.h) };
+}
+
+function overlap(a: Rect, b: Rect): number {
+  return Math.max(0, Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1)) * Math.max(0, Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1));
+}
+
+// What must stay whole: the subject and the faces, with a little air, inside the photo.
+function keepBox(boxes: Rect[] | undefined): Rect | undefined {
+  if (!boxes?.length) return undefined;
+  const u = { x1: Math.min(...boxes.map((b) => b.x1)), y1: Math.min(...boxes.map((b) => b.y1)), x2: Math.max(...boxes.map((b) => b.x2)), y2: Math.max(...boxes.map((b) => b.y2)) };
+  const ax = (u.x2 - u.x1) * 0.04;
+  const ay = (u.y2 - u.y1) * 0.04;
+  return { x1: Math.max(0, u.x1 - ax), y1: Math.max(0, u.y1 - ay), x2: Math.min(1, u.x2 + ax), y2: Math.min(1, u.y2 + ay) };
+}
+
+// The part of the photo that shows in `region`, its inner edges fading into the
+// ground (the slide's own borders stay sharp); every fade ends before `keep` (on the
+// slide), so the subject and the faces are never faded. Returns where the layer goes.
+async function regionPhoto(file: string, frame: Fit, region: Rect, out: string, keep?: Rect): Promise<Rect> {
+  const vis = {
+    x1: Math.max(frame.x, region.x1, 0),
+    y1: Math.max(frame.y, region.y1, 0),
+    x2: Math.min(frame.x + frame.w, region.x2, W),
+    y2: Math.min(frame.y + frame.h, region.y2, H),
+  };
+  const width = vis.x2 - vis.x1;
+  const height = vis.y2 - vis.y1;
+  const rgb = await sharp(file)
+    .rotate()
+    .resize(frame.w, frame.h, { fit: 'fill' })
+    .extract({ left: vis.x1 - frame.x, top: vis.y1 - frame.y, width, height })
+    .removeAlpha()
+    .raw()
+    .toBuffer();
+  const room = keep ? { top: keep.y1 - vis.y1, bottom: vis.y2 - keep.y2, left: keep.x1 - vis.x1, right: vis.x2 - keep.x2 } : undefined;
+  const limit = (len: number, side: 'top' | 'bottom' | 'left' | 'right') => (len && room ? clamp(room[side] - 8, 24, len) : len);
+  const fade = {
+    top: limit(vis.y1 > 0 ? (vis.y1 === region.y1 ? 160 : 70) : 0, 'top'),
+    bottom: limit(vis.y2 < H ? 120 : 0, 'bottom'),
+    left: limit(vis.x1 > 0 ? 120 : 0, 'left'),
+    right: limit(vis.x2 < W ? 120 : 0, 'right'),
+  };
+  const ramp = (d: number, len: number) => (len ? Math.min(1, d / len) : 1);
+  const rgba = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const vy = Math.min(ramp(y, fade.top), ramp(height - 1 - y, fade.bottom));
+    for (let x = 0; x < width; x++) {
+      const t = Math.min(vy, ramp(x, fade.left), ramp(width - 1 - x, fade.right));
+      const i = y * width + x;
+      rgba[i * 4] = rgb[i * 3];
+      rgba[i * 4 + 1] = rgb[i * 3 + 1];
+      rgba[i * 4 + 2] = rgb[i * 3 + 2];
+      rgba[i * 4 + 3] = Math.round(255 * t * t * (3 - 2 * t));
+    }
+  }
+  await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toFile(out);
+  return vis;
+}
+
+export type SlideInput = {
+  run: Run;
+  system: DesignSystem;
+  slide: SlidePlan;
+  photo?: Photo;
+  // Where the photo's subject and faces are (0..1 of the photo): they stay whole and uncovered.
+  avoid?: Rect[];
+  // The faces alone (0..1 of the photo): no gradient or fade goes over them.
+  faces?: Rect[];
+  focus?: { x: number; y: number };
+};
+
+// Where everything went, for the lint and the fixer.
+export type Built = {
+  layout: Layout;
+  ground: string;
+  ink: string;
+  // The whole photo's frame on the slide (the layer may show only part of it).
+  photoFrame?: Fit;
+  textBand: 'top' | 'bottom' | 'middle' | 'under';
+  split: boolean;
+  card?: Rect;
+  // On the slide: the product's own pixels (cutouts) and what must stay whole (subject, faces).
+  product?: Rect;
+  subject?: Rect;
+  // Where the photo shows.
+  visible?: Rect;
+  text: Rect;
+  // Where the decor element's square shows (it bleeds off a corner on purpose).
+  decor?: Rect;
+  textScale: number;
+  photoCropped: boolean;
+  align: 'center' | 'left';
+};
+
+type Part = { kind: 'eyebrow' | 'headline' | 'body' | 'swipe' | 'button'; name: string; w: number; h: number; y: number; top: number };
+
+// Builds one slide from its template in the GIMP image already open (a blank slide).
+export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> {
+  const { run, system, slide, photo } = input;
+  const tweaks = slide.tweaks ?? {};
+  const dir = path.join(run.dir, 'build');
+  await mkdir(dir, { recursive: true });
+  const layout: Layout = slide.layout ?? (photo ? 'photo_band' : 'poster');
+  // In a set of real photos the text goes on top and a studio product takes the photo's frame.
+  const banded = layout !== 'cta' && bandSkeleton(run);
+  const inCard = !!photo && !photo.backdrop && ((!!photo.cutout && !banded) || layout === 'product' || layout === 'hero' || layout === 'cta');
+  // Loose: a transparent product straight on the ground, no card (the brand's way, or the hero).
+  const loose = inCard && !!photo?.cutout && !photo.matte && (system.products === 'loose' || layout === 'hero');
+  const left = system.align === 'left';
+  const place = left ? '_left' : '_center';
+  const R = system.radius;
+  const ground = system.base;
+  const ink = system.ink;
+  const accentText = contrast(system.accent, ground) >= 3 ? system.accent : ink;
+  const logo = pickLogo(run, ground);
+  const heroLogo = !!logo && layout === 'cta' && !photo;
+  const logoScale = tweaks.logoScale ?? 1;
+  const logoH = Math.round(70 * logoScale);
+  const logoY = system.logoPosition === 'top_center' ? 74 : H - 74 - logoH;
+  const topSafe = logo && !heroLogo && system.logoPosition === 'top_center' ? logoY + logoH + 46 : 110;
+  const bottomSafe = logo && !heroLogo && system.logoPosition === 'bottom_center' ? logoY - 40 : H - M;
+  const avail = bottomSafe - topSafe;
+  const pill = system.device === 'pill_label';
+  const underline = system.device === 'underline';
+  const dims = photo ? await size(photo.path) : { width: 1, height: 1 };
+  const keep = photo && !photo.cutout && !photo.backdrop ? keepBox(input.avoid) : undefined;
+
+  let textScale = 1;
+  for (let attempt = 0; ; attempt++) {
+    const parts = await measure(gimp, input, layout, textScale, accentText);
+    const total = parts.reduce((sum, p, i) => sum + p.h + (i ? p.top : 0), 0);
+    const last = attempt === 3;
+
+    // The layout: where the text block starts and where the photo goes.
+    let y0 = 0;
+    let textBand: Built['textBand'] = 'middle';
+    let split = false;
+    let card: Rect | undefined;
+    let frame: Fit | undefined;
+    let region: Rect | undefined;
+    let fits = true;
+    let windowed = false;
+    if (!photo) {
+      const area = heroLogo ? [560, bottomSafe] : [topSafe, bottomSafe];
+      fits = total <= area[1] - area[0];
+      y0 = Math.round((area[0] + area[1]) / 2 - total / 2);
+    } else if (inCard) {
+      // The same card on every product slide; if the text doesn't fit under it, the
+      // text gets smaller, and only as a last resort the card.
+      const gap = 56;
+      const fixed = layout === 'cta' ? CARD.cta : layout === 'hero' && loose ? CARD.hero : CARD.product;
+      fits = fixed + gap + total <= avail;
+      const cardH = fits ? fixed : Math.max(380, avail - gap - total);
+      card = { x1: M, y1: topSafe + 10, x2: W - M, y2: topSafe + 10 + cardH };
+      y0 = card.y2 + gap;
+      textBand = 'under';
+    } else if (photo.backdrop) {
+      frame = cover(dims, input.focus);
+      // Only the stacked set keeps its text on top; the other compositions read at the bottom.
+      textBand = tweaks.band === 'top' || (banded && system.composition === 'stacked' && tweaks.band !== 'bottom') ? 'top' : 'bottom';
+      y0 = textBand === 'top' ? topSafe : bottomSafe - total;
+      fits = total <= H * 0.55;
+    } else if (system.composition === 'window') {
+      // Editorial: the photo in a window inside the margins and the text beside it,
+      // never over it. Where the subject can't be cropped the window narrows to the
+      // photo instead of filling the rest with a blur.
+      split = true;
+      windowed = true;
+      textBand = tweaks.band === 'top' ? 'top' : 'bottom';
+      y0 = textBand === 'top' ? topSafe : bottomSafe - total;
+      const area: Rect = textBand === 'top' ? { x1: M, y1: topSafe + total + 56, x2: W - M, y2: bottomSafe } : { x1: M, y1: topSafe, x2: W - M, y2: y0 - 56 };
+      fits = area.y2 - area.y1 >= (layout === 'cover' ? 560 : 520);
+      if (photo.cutout) {
+        frame = contain(dims, area, photo.content ?? FULL, 56, tweaks.photoScale ?? 1);
+        card = area;
+      } else {
+        frame = fitWhole(dims, area, keep, tweaks.photoScale ?? 1, 24);
+        card = { x1: Math.max(area.x1, frame.x), y1: Math.max(area.y1, frame.y), x2: Math.min(area.x2, frame.x + frame.w), y2: Math.min(area.y2, frame.y + frame.h) };
+      }
+      region = card;
+    } else if (system.composition === 'photo_top' && tweaks.band !== 'top') {
+      // The photo from the slide's top edge down, fading into the ground above the text
+      // ("split", the text off the photo, is already this).
+      split = true;
+      textBand = 'bottom';
+      y0 = bottomSafe - total;
+      region = { x1: 0, y1: 0, x2: W, y2: y0 - 48 };
+      fits = region.y2 - region.y1 >= (layout === 'cover' ? 600 : 540);
+      frame = photo.cutout ? contain(dims, { ...region, y1: 60 }, photo.content ?? FULL, 56, tweaks.photoScale ?? 1) : fitWhole(dims, region, keep, tweaks.photoScale ?? 1);
+    } else {
+      const full = cover(dims, input.focus);
+      const k = keep ? onSlide(keep, full) : undefined;
+      // Whole means inside the slide, unless the photo itself ends there.
+      const whole = !k || ((k.x1 >= 12 || k.x1 <= full.x) && (k.y1 >= 12 || k.y1 <= full.y) && (k.x2 <= W - 12 || k.x2 >= full.x + full.w) && (k.y2 <= H - 12 || k.y2 >= full.y + full.h));
+      const band = (top: boolean): Rect => (top ? { x1: M, y1: topSafe, x2: W - M, y2: topSafe + total } : { x1: M, y1: bottomSafe - total, x2: W - M, y2: bottomSafe });
+      const covers = (r: Rect) => (k ? overlap(r, k) / ((r.x2 - r.x1) * (r.y2 - r.y1)) : 0);
+      // The stacked set keeps its text on top; the overlay always at the bottom.
+      const top =
+        tweaks.band === 'top' ||
+        (tweaks.band !== 'bottom' && system.composition !== 'overlay' && ((banded && system.composition === 'stacked') || covers(band(true)) < covers(band(false))));
+      // The gradient reaches 220 px past the text: it can't darken a face either.
+      const faces = (input.faces ?? []).map((f) => onSlide(f, full));
+      const gradientZone: Rect = top ? { x1: 0, y1: 0, x2: W, y2: topSafe + total + 220 } : { x1: 0, y1: bottomSafe - total - 220, x2: W, y2: H };
+      const logoBox: Rect = { x1: W / 2 - 120 * logoScale - 22, y1: logoY - 14, x2: W / 2 + 120 * logoScale + 22, y2: logoY + logoH + 14 };
+      const blocked = covers(band(top)) > 0.1 || faces.some((f) => overlap(f, gradientZone) > 0) || (!!logo && !!k && overlap(logoBox, k) > 0);
+      split = !!photo.cutout || tweaks.band === 'split' || (tweaks.band !== 'top' && tweaks.band !== 'bottom' && (!whole || blocked));
+      if (split && system.composition === 'overlay') {
+        // An overlay slide that can't take its text over the photo keeps the text at the
+        // bottom like the others: the photo above it, fading into the ground.
+        y0 = bottomSafe - total;
+        textBand = 'bottom';
+        region = { x1: 0, y1: 0, x2: W, y2: y0 - 48 };
+        fits = region.y2 - region.y1 >= (layout === 'cover' ? 600 : 540);
+        frame = photo.cutout ? contain(dims, { ...region, y1: 60 }, photo.content ?? FULL, 56, tweaks.photoScale ?? 1) : fitWhole(dims, region, keep, tweaks.photoScale ?? 1);
+      } else if (split) {
+        // Text on the ground above, the photo below with its subject whole, fading into the ground.
+        y0 = topSafe;
+        textBand = 'top';
+        region = { x1: 0, y1: topSafe + total + 48, x2: W, y2: logo && !heroLogo && system.logoPosition === 'bottom_center' ? logoY - 24 : H };
+        // The cover's photo is the hook: it keeps most of the slide.
+        fits = region.y2 - region.y1 >= (layout === 'cover' ? 600 : 540);
+        frame = photo.cutout ? contain(dims, region, photo.content ?? FULL, 56, tweaks.photoScale ?? 1) : fitWhole(dims, region, keep, tweaks.photoScale ?? 1);
+      } else {
+        frame = full;
+        textBand = top ? 'top' : 'bottom';
+        y0 = textBand === 'top' ? topSafe : bottomSafe - total;
+        fits = total <= H * 0.45;
+      }
+    }
+    if (!fits && !last) {
+      textScale *= 0.88;
+      continue;
+    }
+
+    // Drawing: the lower layers (inserted top to bottom right above the Background),
+    // then the text in place with its shapes, then the logo.
+    const code: string[] = ['_img = Gimp.get_images()[0]', LIB];
+    let product: Rect | undefined;
+    let visible: Rect | undefined;
+    if (photo && inCard && card) {
+      const cw = card.x2 - card.x1;
+      const ch = card.y2 - card.y1;
+      if (photo.cutout) {
+        // The product's own pixels (its margins trimmed) contained and centered in the card.
+        const c = photo.content ?? FULL;
+        frame = contain(dims, card, c, loose ? 24 : 56, tweaks.photoScale ?? 1);
+        product = onSlide(c, frame);
+        code.push(`_p = _image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+        if (!loose) code.push(`_round_mask(_p, ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${Math.max(1, R)})`);
+        if (!photo.matte) {
+          // A transparent cutout stands on the ground (or its light card) with a soft shadow.
+          const shade = path.join(dir, `s${slide.n}-shadow.png`);
+          const sw = Math.round((product.x2 - product.x1) * 0.8);
+          const cx = Math.round((product.x1 + product.x2) / 2);
+          await shadow(shade, sw);
+          code.push(`_s = _image('Shadow', ${py(shade)}, ${Math.round(cx - (sw + 120) / 2)}, ${product.y2 - 70}, ${sw + 120}, 120, _bgpos())`);
+          if (!loose) code.push(`_round_mask(_s, ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${Math.max(1, R)})`);
+        }
+        if (layout === 'hero') {
+          // A giant ghost word behind the product: the label, or the headline's longest word.
+          const word = (slide.eyebrow?.trim() || [...slide.headline.split(/\s+/)].sort((a, b) => b.length - a.length)[0] || '').toUpperCase();
+          const size = Math.round(Math.min(380, 1240 / (Math.max(1, word.length) * 0.6)));
+          code.push(`_g = _text('Ghost', ${py(word)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${size}, ${py(system.accent)}, 99999, -0.1, -0.02, 40)`);
+          code.push(`_g.set_opacity(22)
+_img.reorder_item(_g, None, _bgpos() - 1)
+_g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2} - _g.get_height() / 2))`);
+        }
+        if (!loose) code.push(`_shape('Card', ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${py(photo.matte ?? CARD_LIGHT)}, ${R}, _bgpos())`);
+        visible = card;
+      } else {
+        // A real photo: covering the card with its subject whole; where it can't, the
+        // same photo blurred fills the card behind it.
+        frame = fitWhole(dims, card, keep, tweaks.photoScale ?? 1, 24);
+        code.push(`_p = _image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+        code.push(`_round_mask(_p, ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${Math.max(1, R)})`);
+        if (frame.x > card.x1 || frame.y > card.y1 || frame.x + frame.w < card.x2 || frame.y + frame.h < card.y2) {
+          const fill = path.join(dir, `s${slide.n}-cardfill.png`);
+          await sharp(photo.path).rotate().resize(cw, ch, { fit: 'cover' }).blur(30).modulate({ brightness: 0.75 }).png().toFile(fill);
+          code.push(`_c = _image('Card', ${py(fill)}, ${card.x1}, ${card.y1}, ${cw}, ${ch}, _bgpos())`);
+          code.push(`_round_mask(_c, ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${Math.max(1, R)})`);
+        }
+        visible = card;
+      }
+    } else if (photo && frame && windowed && card) {
+      const cw = card.x2 - card.x1;
+      const ch = card.y2 - card.y1;
+      code.push(`_p = _image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+      code.push(`_round_mask(_p, ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${Math.max(1, R)})`);
+      if (photo.cutout) {
+        product = onSlide(photo.content ?? FULL, frame);
+        code.push(`_shape('Card', ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${py(photo.matte ?? CARD_LIGHT)}, ${R}, _bgpos())`);
+      }
+      visible = card;
+    } else if (photo?.cutout && frame && split && region) {
+      product = onSlide(photo.content ?? FULL, frame);
+      if (photo.matte) {
+        // A studio shot fills the photo area with its own background and fades like the real photos.
+        const rw = region.x2 - region.x1;
+        const rh = region.y2 - region.y1;
+        const plate = path.join(dir, `s${slide.n}-plate.png`);
+        // Scaled to the product, the whole shot (its margins too) can outgrow the area: only the part inside it.
+        const dx = frame.x - region.x1;
+        const dy = frame.y - region.y1;
+        const cut = { left: Math.max(0, -dx), top: Math.max(0, -dy), width: Math.min(frame.w - Math.max(0, -dx), rw - Math.max(0, dx)), height: Math.min(frame.h - Math.max(0, -dy), rh - Math.max(0, dy)) };
+        const shot = await sharp(photo.path).rotate().resize(frame.w, frame.h, { fit: 'fill' }).extract(cut).png().toBuffer();
+        await sharp({ create: { width: rw, height: rh, channels: 3, background: photo.matte } })
+          .composite([{ input: shot, left: Math.max(0, dx), top: Math.max(0, dy) }])
+          .png()
+          .toFile(plate);
+        const file = path.join(dir, `s${slide.n}-photo.png`);
+        visible = await regionPhoto(plate, { x: region.x1, y: region.y1, w: rw, h: rh }, region, file, product);
+        code.push(`_image('Photo', ${py(file)}, ${visible.x1}, ${visible.y1}, ${visible.x2 - visible.x1}, ${visible.y2 - visible.y1}, _bgpos())`);
+      } else {
+        // A transparent product stands on the ground with a soft shadow.
+        const shade = path.join(dir, `s${slide.n}-shadow.png`);
+        const sw = Math.round((product.x2 - product.x1) * 0.8);
+        await shadow(shade, sw);
+        code.push(`_image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+        code.push(`_image('Shadow', ${py(shade)}, ${Math.round((product.x1 + product.x2) / 2 - (sw + 120) / 2)}, ${product.y2 - 70}, ${sw + 120}, 120, _bgpos())`);
+        visible = region;
+      }
+    } else if (photo && frame && split && region) {
+      const file = path.join(dir, `s${slide.n}-photo.png`);
+      visible = await regionPhoto(photo.path, frame, region, file, keep ? onSlide(keep, frame) : undefined);
+      code.push(`_image('Photo', ${py(file)}, ${visible.x1}, ${visible.y1}, ${visible.x2 - visible.x1}, ${visible.y2 - visible.y1}, _bgpos())`);
+      if (frame.x > 0 || frame.x + frame.w < W) {
+        // Narrower than the slide: the same photo, blurred and dimmed, fills the sides.
+        const fill = path.join(dir, `s${slide.n}-fill.png`);
+        const fillFrame = { x: 0, y: region.y1, w: W, h: region.y2 - region.y1 };
+        const blurred = path.join(dir, `s${slide.n}-blur.png`);
+        await sharp(photo.path).rotate().resize(fillFrame.w, fillFrame.h, { fit: 'cover' }).blur(40).modulate({ brightness: 0.55 }).png().toFile(blurred);
+        const vis = await regionPhoto(blurred, fillFrame, region, fill);
+        code.push(`_image('Photo fill', ${py(fill)}, ${vis.x1}, ${vis.y1}, ${vis.x2 - vis.x1}, ${vis.y2 - vis.y1}, _bgpos())`);
+      }
+    } else if (photo && frame) {
+      const grad = path.join(dir, `s${slide.n}-gradient.png`);
+      await gradient(grad, ground, textBand === 'top' ? 'top' : 'bottom', textBand === 'top' ? Math.min(H, y0 + total + 220) : Math.max(0, y0 - 220));
+      code.push(`_image('Gradient', ${py(grad)}, 0, 0, ${W}, ${H}, _bgpos())`);
+      if (photo.backdrop) code.push(`_shape('Shade', 0, 0, ${W}, ${H}, ${py(ground)}, 0, _bgpos(), 55)`);
+      code.push(`_image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+      visible = { x1: 0, y1: 0, x2: W, y2: H };
+    }
+
+    // The text block, placed first so the decor can keep clear of it.
+    let y = y0;
+    parts.forEach((p, i) => {
+      if (i) y += p.top;
+      p.y = y;
+      y += p.h;
+    });
+    const textW = Math.max(...parts.map((p) => (p.kind === 'button' ? Math.min(TEXT_W, p.w + 120) : p.kind === 'eyebrow' && pill ? p.w + 56 : p.w)));
+    const text: Rect = left ? { x1: M, y1: y0, x2: M + textW, y2: y0 + total } : { x1: Math.round(W / 2 - textW / 2), y1: y0, x2: Math.round(W / 2 + textW / 2), y2: y0 + total };
+
+    // The decor kit, on the ground only: the element and the glow never on a full-bleed photo.
+    let decor: Rect | undefined;
+    // A window leaves the ground around the photo, where the decor may go.
+    const fullBleed = !!photo && !inCard && !windowed;
+    if (system.decor && !fullBleed && tweaks.decor !== false) {
+      if (system.decor.elementFile) {
+        const logoBox: Rect = heroLogo
+          ? { x1: W / 2 - 220, y1: 250, x2: W / 2 + 220, y2: 480 }
+          : { x1: left ? M : W / 2 - 120 * logoScale - 22, y1: logoY - 14, x2: left ? M + 240 * logoScale + 44 : W / 2 + 120 * logoScale + 22, y2: logoY + logoH + 14 };
+        const out = path.join(dir, `s${slide.n}-decor.png`);
+        decor = await decorElement(system.decor.elementFile, slide.n, [text, ...(logo ? [logoBox] : []), ...(card ? [card] : [])], out);
+        if (decor) code.push(`_image('Decor', ${py(out)}, ${decor.x1}, ${decor.y1}, ${decor.x2 - decor.x1}, ${decor.y2 - decor.y1}, _bgpos())`);
+      }
+      const light = path.join(dir, `s${slide.n}-glow.png`);
+      if (system.decor.glow && !photo && (await glow(light, system.accent, ground, ink, W / 2, (text.y1 + text.y2) / 2))) {
+        code.push(`_image('Glow', ${py(light)}, 0, 0, ${W}, ${H}, _bgpos())`);
+      }
+    }
+
+    const groundFile = await groundSlice(run, system, slide.n, dir);
+    if (groundFile) code.push(`_image('Ground', ${py(groundFile)}, 0, 0, ${W}, ${H}, _bgpos())`);
+
+    for (const p of parts) {
+      if (p.kind === 'eyebrow' && pill) {
+        const w = p.w + 56;
+        const x = left ? M : Math.round(W / 2 - w / 2);
+        code.push(`_shape('Label', ${x}, ${p.y}, ${w}, ${p.h}, ${py(system.accent)}, ${corner(R, p.h)}, _below(_get('Eyebrow')))`);
+        code.push(`_get('Eyebrow').set_offsets(${x + 28}, ${p.y + 15})`);
+      } else if (p.kind === 'button') {
+        const w = Math.min(TEXT_W, p.w + 120);
+        const x = left ? M : Math.round(W / 2 - w / 2);
+        code.push(`_shape('Button', ${x}, ${p.y}, ${w}, ${p.h}, ${py(system.accent)}, ${corner(R, p.h)}, _below(_get('Button text')))`);
+        if (system.button === 'outline') code.push(`_shape('Button fill', ${x + 4}, ${p.y + 4}, ${w - 8}, ${p.h - 8}, ${py(ground)}, ${Math.max(0, corner(R, p.h) - 4)}, _below(_get('Button text')))`);
+        code.push(`_bt = _get('Button text')
+_bt.set_offsets(int(${x + w / 2} - _bt.get_width() / 2), ${p.y + 32})`);
+      } else {
+        code.push(`${place}(_get(${py(p.name)}), ${p.y})`);
+        if (p.kind === 'headline' && underline) {
+          code.push(`_shape('Underline', ${left ? M : W / 2 - 60}, int(${p.y} + _get('Headline').get_height() + 22), 120, 10, ${py(system.accent)}, ${Math.min(5, R)}, _below(_get('Headline')))`);
+        }
+      }
+    }
+
+    // The recurring frame device.
+    if (system.device === 'frame') {
+      code.push(`_fr = _layer('Frame')\n_img.select_rectangle(Gimp.ChannelOps.REPLACE, 36, 36, ${W - 72}, ${H - 72})\n_img.select_rectangle(Gimp.ChannelOps.SUBTRACT, 42, 42, ${W - 84}, ${H - 84})\nGimp.context_set_foreground(_color(${py(system.accent)}))\n_fr.edit_fill(Gimp.FillType.FOREGROUND)\nGimp.Selection.none(_img)`);
+    }
+
+    // Logo: the same place on every slide; on a text-only call to action it is the hero.
+    if (logo) {
+      const box = heroLogo ? { x: W / 2 - 220, y: 250, w: 440, h: 230 } : { x: W / 2 - 120 * logoScale, y: logoY, w: 240 * logoScale, h: logoH };
+      const s = Math.min(box.w / logo.asset.width, box.h / logo.asset.height);
+      const f = { w: Math.round(logo.asset.width * s), h: Math.round(logo.asset.height * s), x: 0, y: 0 };
+      const padX = heroLogo ? 44 : 22;
+      const padY = heroLogo ? 30 : 14;
+      // On the left margin it is the plate's edge that sits on it, not the logo's.
+      f.x = left && !heroLogo ? M + (logo.pill ? padX : 0) : Math.round(box.x + (box.w - f.w) / 2);
+      f.y = Math.round(box.y + (box.h - f.h) / 2);
+      if (logo.pill) {
+        code.push(`_shape('Logo plate', ${f.x - padX}, ${f.y - padY}, ${f.w + 2 * padX}, ${f.h + 2 * padY}, ${py(logo.pill)}, ${Math.round((f.h + 2 * padY) / 2)}, 0)`);
+      }
+      code.push(`_image('Logo', ${py(logo.asset.path)}, ${f.x}, ${f.y}, ${f.w}, ${f.h})`);
+    }
+    code.push('Gimp.displays_flush()');
+    code.push("_result = {'layers': [_l.get_name() for _l in _img.get_layers()]}");
+    await gimp.python(code.join('\n'));
+
+    return {
+      layout,
+      ground,
+      ink,
+      photoFrame: frame,
+      textBand,
+      split,
+      card,
+      product,
+      subject: keep && frame ? onSlide(keep, frame) : !card ? product : undefined,
+      visible,
+      text,
+      decor,
+      textScale,
+      // A cut product only matters where it is the hero (photo_band and poster may keep it).
+      photoCropped: !!photo?.cropped && (inCard || layout === 'cover' || !!photo.cutout),
+      align: system.align,
+    };
+  }
+}
+
+// Creates the text layers on a cleared slide and measures them in GIMP.
+async function measure(gimp: Gimp, input: SlideInput, layout: Layout, scale: number, accentText: string): Promise<Part[]> {
+  const { run, system, slide } = input;
+  const tweaks = slide.tweaks ?? {};
+  const pill = system.device === 'pill_label';
+  const headingFont = system.gimpHeading ?? 'Sans-serif Bold';
+  const bodyFont = system.gimpBody ?? 'Sans-serif';
+  const bodyBold = system.gimpBodyBold ?? system.gimpHeading ?? 'Sans-serif Bold';
+  const base = { poster: { head: 132, body: 44 }, cover: { head: 104, body: 40 }, photo_band: { head: 96, body: 40 }, product: { head: 84, body: 38 }, hero: { head: 92, body: 38 }, cta: { head: 92, body: 40 } }[layout];
+  const head = Math.round(base.head * scale * (tweaks.headScale ?? 1));
+  const body = Math.round(base.body * scale * (tweaks.bodyScale ?? 1));
+  const perLine = (px: number) => Math.max(8, Math.floor(TEXT_W / (px * 0.56)));
+  const headline = system.headlineCase === 'upper' ? slide.headline.toUpperCase() : slide.headline;
+
+  const code: string[] = ['_img = Gimp.get_images()[0]', LIB];
+  code.push("for _old in [_l for _l in _img.get_layers() if _l.get_name() != 'Background']:\n    _img.remove_layer(_old)");
+  if (system.align === 'left') code.push('_J = Gimp.TextJustification.LEFT');
+  code.push(`Gimp.context_set_background(_color(${py(system.base)}))\n_get('Background').edit_fill(Gimp.FillType.BACKGROUND)`);
+  code.push('_m = {}');
+  const add = (name: string, call: string) => code.push(`_t = ${call}\n_m[${py(name)}] = [_t.get_width(), _t.get_height()]`);
+  const kinds: Omit<Part, 'w' | 'h' | 'y'>[] = [];
+  if (slide.eyebrow?.trim()) {
+    add('Eyebrow', `_text('Eyebrow', ${py(slide.eyebrow.trim().toUpperCase())}, ${py(bodyBold)}, ${Math.round(30 * Math.max(0.85, scale))}, ${py(pill ? system.accentInk : accentText)}, ${TEXT_W - 80}, 0.0, 0.12)`);
+    kinds.push({ kind: 'eyebrow', name: 'Eyebrow', top: 0 });
+  }
+  add('Headline', `_text('Headline', ${py(balance(headline, perLine(head), 3))}, ${py(headingFont)}, ${head}, ${py(system.ink)}, ${TEXT_W}, -0.18, ${system.tracking}, 44)`);
+  kinds.push({ kind: 'headline', name: 'Headline', top: pill ? 26 : 18 });
+  if (slide.body?.trim()) {
+    add('Body', `_text('Body', ${py(balance(slide.body.trim(), perLine(body), 3))}, ${py(bodyFont)}, ${body}, ${py(system.ink)}, ${TEXT_W - 40}, 0.05, 0.0, 26)\n_t.set_opacity(90)`);
+    kinds.push({ kind: 'body', name: 'Body', top: 28 });
+  }
+  if (layout === 'cover' && run.plan && run.plan.slides.length > 1) {
+    add('Swipe', `_text('Swipe', ${py(system.swipeLabel)}, ${py(bodyBold)}, 28, ${py(accentText)}, 400, 0.0, 0.08)`);
+    kinds.push({ kind: 'swipe', name: 'Swipe', top: 34 });
+  }
+  if (layout === 'cta' && slide.button?.trim()) {
+    add('Button text', `_text('Button text', ${py(slide.button.trim())}, ${py(bodyBold)}, 40, ${py(system.button === 'outline' ? accentText : system.accentInk)}, ${TEXT_W - 160}, 0.0, 0.0, 28)`);
+    kinds.push({ kind: 'button', name: 'Button text', top: 40 });
+  }
+  code.push('_result = _m');
+  const sizes = (await gimp.python(code.join('\n'))) as Record<string, [number, number]>;
+  return kinds.map((k) => {
+    const [w, h] = sizes[k.name];
+    // The pill and the button add their padding; the underline sits under the headline.
+    const extra = k.kind === 'eyebrow' && pill ? 30 : k.kind === 'button' ? 64 : k.kind === 'headline' && system.device === 'underline' ? 38 : 0;
+    return { ...k, w, h: h + extra, y: 0 };
+  });
+}
+
+// The logo version that reads on the ground; a logo with its own solid background
+// (or one too close to the ground) sits on a plate so it never looks pasted.
+function pickLogo(run: Run, ground: string): { asset: Asset; pill?: string } | undefined {
+  const options = [run.logo, run.logoLight].filter(Boolean) as Asset[];
+  if (!options.length) return undefined;
+  // The most readable version; between equals, the wider one (a wordmark reads better in a header).
+  const best = options.sort((a, b) => logoContrast(b, ground) - logoContrast(a, ground) || b.width / b.height - a.width / a.height)[0];
+  if (best.matte) return { asset: best, pill: best.matte };
+  // A badge, or an opaque crop with a busy edge, already has its shape: a plate around
+  // it reads as a second border.
+  if (best.badge || !best.transparent) return { asset: best };
+  if (logoContrast(best, ground) < 2.2) return { asset: best, pill: luminance(ground) > 0.4 ? '#111111' : '#ffffff' };
+  return { asset: best };
+}
+
+function logoContrast(logo: Asset, ground: string): number {
+  if (logo.matte) return 21;
+  const tone = logo.tone ?? 0.5;
+  return contrast(ground, tone > 0.5 ? '#ffffff' : '#111111');
+}

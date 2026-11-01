@@ -1,0 +1,19 @@
+# Server
+server/node_modules/
+server/.env
+server/runs/
+# Saved lists of other people's websites, for the queue
+server/lists/
+# Sound effects downloaded from Mixkit, cached across runs
+server/cache/
+
+# Flutter (see also app/.gitignore)
+app/build/
+app/.dart_tool/
+
+.fvm/
+.DS_Store
+.vscode/
+.idea/
+# Other brands' ads used as references: only their recipe is kept, never shipped
+server/references/

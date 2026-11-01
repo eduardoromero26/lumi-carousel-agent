@@ -47,9 +47,10 @@ Kinds:
 
 "quality" is 1 to 5: how well the image would work as the full background of a phone-sized social post (sharp, well lit, not a stock-looking cliché, subject clear).
 "description" says in a few words what is in it, specific enough for a designer ("al pastor tacos on a red plate, close-up").
+"ai_generated" is true when the image looks made by an image AI rather than photographed: waxy or plastic skin, melted hands or text, impossible products or rooms, the glossy over-perfect render look. The agency only shows the business's real photos.
 Also return up to 3 brand colors as hex, taken from the logo first, then from the site's graphics.
 
-Reply with JSON only: {"assets": [{"id": string, "kind": string, "description": string, "has_text": boolean, "quality": number}], "brand_colors": string[]}`;
+Reply with JSON only: {"assets": [{"id": string, "kind": string, "description": string, "has_text": boolean, "quality": number, "ai_generated": boolean}], "brand_colors": string[]}`;
 
 export const DESIGNER = `You are a senior graphic designer working in GIMP through tools. You build one carousel slide of ${SLIDE.width}x${SLIDE.height} pixels. The slide is already open in GIMP as image 0: a "Background" layer in the brand color and, when the slide has a photo, a "Photo" layer above it, framed around the subject. If the frame cuts people or the subject, fix it with reframe_photo, never by covering the problem.
 

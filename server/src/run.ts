@@ -59,6 +59,8 @@ export type Asset = {
   description?: string;
   hasText?: boolean;
   quality?: number;
+  // Made by an image AI (its file name or how it looks): never used as a photo.
+  aiMade?: boolean;
   // Text of the card the image sits in on the site (a product's name and price).
   context?: string;
   // Logos: the flat background color when the file has one, and how light the mark is (0..1).

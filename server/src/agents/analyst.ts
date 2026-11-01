@@ -10,7 +10,18 @@ const PHOTO_KINDS = new Set(['product', 'food', 'place', 'people', 'work']);
 const BACKDROP_KINDS = new Set([...PHOTO_KINDS, 'banner']);
 const MAX_PHOTOS = 8;
 
-type Verdict = { id: string; kind: Asset['kind']; description: string; has_text: boolean; quality: number };
+type Verdict = { id: string; kind: Asset['kind']; description: string; has_text: boolean; quality: number; ai_generated?: boolean };
+
+// Image AIs name their files ("ChatGPT_Image_23_jun…", "DALL·E 2024…", "Gemini_Generated_Image…").
+const AI_FILE = /chatgpt[_ -]?image|dall[·.\-_ ]?e|gemini[_ -]generated|midjourney|firefly|leonardo[_ -]?ai|stable[_ -]?diffusion|ideogram|ai[_ -]generated/i;
+
+export function aiMadeFile(source: string): boolean {
+  let name = source;
+  try {
+    name = decodeURIComponent(new URL(source).pathname);
+  } catch {}
+  return AI_FILE.test(name);
+}
 
 // Looks at every asset from the website, labels it and decides what the other
 // agents get: the logo for the designer, good photos for the director and the
@@ -46,6 +57,7 @@ export async function analyzeAssets(run: Run): Promise<void> {
       asset.description = verdict.description;
       asset.hasText = verdict.has_text;
       asset.quality = verdict.quality;
+      asset.aiMade = !!verdict.ai_generated || aiMadeFile(asset.source);
     }
     result.brand_colors?.forEach((c) => /^#[0-9a-f]{6}$/i.test(c) && colors.add(c.toLowerCase()));
   }
@@ -69,7 +81,10 @@ export async function analyzeAssets(run: Run): Promise<void> {
   run.logo = uploaded ?? dark[0] ?? light[0];
   run.logoLight = uploaded ? undefined : light[0] !== run.logo ? light[0] : undefined;
 
-  const candidates = site.filter((a) => a.kind && PHOTO_KINDS.has(a.kind) && (a.quality ?? 0) >= 3 && !a.hasText && Math.min(a.width, a.height) >= 500);
+  // Only the business's real photos: what an image AI made never reaches a slide.
+  const real = site.filter((a) => !a.aiMade);
+  if (real.length < site.length) run.emit('status', 'analyst', `Left out ${site.length - real.length} image(s) made with AI: only real photos go on the slides.`);
+  const candidates = real.filter((a) => a.kind && PHOTO_KINDS.has(a.kind) && (a.quality ?? 0) >= 3 && !a.hasText && Math.min(a.width, a.height) >= 500);
   const shots = new Map<Asset, Studio>();
   await Promise.all(candidates.map(async (asset) => shots.set(asset, asset.transparent ? { cropped: false, content: await alphaBox(asset.path) } : await studioShot(asset.path))));
   // A product cut by its own photo's edge can't be shown whole: those go last.
@@ -79,7 +94,7 @@ export async function analyzeAssets(run: Run): Promise<void> {
   for (const asset of clean) run.photos.push(await photoFromAsset(run, asset, shots.get(asset)));
   // Many sites (agencies, services) only have screenshots and banners with text.
   // They still beat a flat color as backgrounds, softened and under a shade.
-  const backdrops = site
+  const backdrops = real
     .filter((a) => !clean.includes(a) && a.kind && BACKDROP_KINDS.has(a.kind) && (a.quality ?? 0) >= 2 && Math.min(a.width, a.height) >= 400)
     .sort((a, b) => (b.quality ?? 0) - (a.quality ?? 0) || b.width * b.height - a.width * a.height)
     .slice(0, Math.max(0, MAX_PHOTOS - run.photos.length));

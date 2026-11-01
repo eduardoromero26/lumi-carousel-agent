@@ -44,3 +44,27 @@ test('puts each thing learned on its shelf with its evidence', () => {
   assert.equal(shelf('quality').cards[0].title, 'v1: 30 % · 2.8 ★');
   assert.deepEqual(shelf('references').cards, []);
 });
+
+test('shows the decor the runs paid for, votable, and counts the cutouts', () => {
+  const item = (id: string, kind: 'texture' | 'element' | 'cutout', prompt: string) => ({
+    item: { id, kind, prompt, file: `f/${id}.png`, host: 'mayakim.com.mx', business: 'Maya Kim', type: 'embroidery', personality: 'heritage', colors: ['#e0457b'], runId: 'r1', source: null, grounded: false, at: '2026-11-01' },
+    url: `/files/library/${kind}/${id}.png`,
+  });
+  const shelves = library({
+    stats: [],
+    votes: [],
+    calibration: calibration([]),
+    batches: [],
+    failures: failureKinds([]),
+    lessons: new Map(),
+    learned: new Map([['library:r1-element-1', { value: -1, note: 'too childish' }]]),
+    made: [item('r1-element-1', 'element', 'cross-stitch rose'), item('r1-texture-2', 'texture', 'woven cotton'), item('r1-p3c', 'cutout', 'person')],
+  });
+  const decor = shelves.find((s) => s.id === 'decor')!;
+  assert.deepEqual(decor.cards.map((c) => [c.title, c.image, c.vote]), [
+    ['Element · Maya Kim', '/files/library/element/r1-element-1.png', -1],
+    ['Texture · Maya Kim', '/files/library/texture/r1-texture-2.png', undefined],
+  ]);
+  assert.equal(decor.cards[0].feedback, 'too childish');
+  assert.match(decor.about, /1 subjects SAM cut out/);
+});

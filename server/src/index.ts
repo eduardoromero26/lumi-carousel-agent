@@ -16,6 +16,7 @@ setDefaultResultOrder('ipv4first');
 import { Run, type Brief } from './run.js';
 import { backfill, calibrationReport, judgedVotes, learningVotes, listCarousels, rawTaste, saveCarousel, saveLearningVote, saveVote, starsOf, taste, votesOf } from './db.js';
 import { library } from './learned.js';
+import { backfillLibrary, libraryItems, libraryUrl } from './library.js';
 import { failureKinds } from './metrics.js';
 import { batchReport, batchSummaries, enqueue, failuresReport, historyRows, isPaused, lessons, markFailed, markFinished, markRunning, nextWaiting, queueItems, removeWaiting, savedLists, setPaused, type QueueItem } from './queue.js';
 
@@ -119,14 +120,14 @@ const server = http.createServer(async (req, res) => {
       return json(
         res,
         200,
-        library({ stats: rawTaste(), votes: judgedVotes(), calibration: cal, batches, failures: failureKinds(historyRows()), lessons: lessons(), learned: learningVotes() }),
+        library({ stats: rawTaste(), votes: judgedVotes(), calibration: cal, batches, failures: failureKinds(historyRows()), lessons: lessons(), learned: learningVotes(), made: libraryItems().map((item) => ({ item, url: libraryUrl(item) })) }),
       );
     }
 
     // POST /api/learned/vote {id: a card's id, value: 1 | -1 | 0, note?: why it was learned wrong}
     if (req.method === 'POST' && url.pathname === '/api/learned/vote') {
       const { id, value, note } = (await readJson(req)) as { id?: unknown; value?: number; note?: unknown };
-      if (typeof id !== 'string' || !/^(taste|note|lesson):.+/.test(id) || ![1, -1, 0].includes(Number(value))) return json(res, 400, { error: 'Bad vote' });
+      if (typeof id !== 'string' || !/^(taste|note|lesson|library):.+/.test(id) || ![1, -1, 0].includes(Number(value))) return json(res, 400, { error: 'Bad vote' });
       saveLearningVote(id, Number(value), typeof note === 'string' ? note : undefined);
       return json(res, 200, Object.fromEntries(learningVotes()));
     }
@@ -364,6 +365,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 server.listen(config.port, () => {
   console.log(`Carousel Agent on http://localhost:${config.port}`);
   backfill().catch((error: Error) => console.error('Feed index:', error.message));
+  backfillLibrary().catch((error: Error) => console.error('Library:', error.message));
   void pump();
   ensureGimp()
     .then((how) => console.log(how === 'started' ? 'GIMP started headless (gimp-console).' : 'Using the GIMP that is already running.'))

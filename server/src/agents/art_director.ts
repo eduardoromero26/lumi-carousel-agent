@@ -1,4 +1,5 @@
-import { readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
 import sharp from 'sharp';
 import { config } from '../config.js';
 import { describeSystem, normalizeSystem, type Decor, type DesignSystem } from '../design.js';
@@ -9,7 +10,8 @@ import { generateAsset } from '../muse_image.js';
 import type { Plan, Run } from '../run.js';
 import { recentLooks, taste, tasteCorrections } from '../db.js';
 import { describeTaste } from '../taste.js';
-import { describeFonts, describeLooks, freshen } from '../variety.js';
+import { brandKit, describeDecorTaste, keep, likedPiece } from '../library.js';
+import { describeFonts, describeLooks, freshen, hostOf } from '../variety.js';
 import { ART_DIRECTOR } from './prompts.js';
 
 // One visual system for the whole carousel, decided before any slide is built,
@@ -21,6 +23,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   const stats = taste();
   const liked = describeTaste(stats, ['composition', 'personality', 'heading font', 'body font', 'device', 'logo', 'align', 'case', 'ground', 'decor', 'type', 'color slides', 'numbers']);
   const corrections = tasteCorrections();
+  const decorTaste = describeDecorTaste(hostOf(run.brief.url));
   const parts: ContentPart[] = [
     {
       type: 'text',
@@ -32,6 +35,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
         `If none fits, the personality families and their fonts:\n${describeFonts()}`,
         liked ? `The owner's votes on past carousels (follow them where this brand allows): ${liked}` : '',
         corrections ? `The owner said these conclusions from the votes were learned wrong (do not apply them; their words):\n${corrections}` : '',
+        decorTaste,
         recent.length ? `The agency's last carousels for other brands (composition, headlines / text, device, logo, alignment, case):\n${describeLooks(recent)}` : '',
         `Slides: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role}${s.photo ? ' (photo)' : ''}`).join('; ')}.`,
         plan.slides.every((s) => s.eyebrow) ? 'Every slide has a short label above its headline.' : 'The slides have no label above the headline: "pill_label" is not an option.',
@@ -80,7 +84,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   const system = normalizeSystem(raw, run.brief.brandColors ?? []);
   const changes = freshen(system, onGoogle, recent, plan.slides.every((s) => s.eyebrow), stats);
   if (changes.length) run.emit('status', 'designer', `So it doesn't look like the last brands: ${changes.join('; ')}.`);
-  if (system.decor) await makeDecor(run, system.decor);
+  if (system.decor) await makeDecor(run, system.decor, { type: plan.business_type, personality: system.personality });
 
   // Fonts that can't be installed fall back to Montserrat, so the system still holds.
   for (const role of ['heading', 'body'] as const) {
@@ -102,23 +106,34 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   return system;
 }
 
-// The decor kit, generated once for every slide; a piece that fails is left out.
-async function makeDecor(run: Run, decor: Decor): Promise<void> {
-  const pieces = [
-    ['texture', decor.texture],
-    ['element', decor.element],
-  ] as const;
+// The decor kit, once for every slide: the brand's own liked piece first, then one the
+// art director took from the library, else generated and kept there. A piece that fails is left out.
+async function makeDecor(run: Run, decor: Decor, extra: { type?: string; personality?: string }): Promise<void> {
+  const host = hostOf(run.brief.url);
+  const asked = decor.reuse ?? {};
+  decor.reuse = {};
   await Promise.all(
-    pieces.map(async ([kind, prompt]) => {
-      if (!prompt) return;
-      try {
-        const file = await generateAsset(run, prompt, kind);
-        if (kind === 'texture') decor.textureFile = file;
-        else decor.elementFile = file;
-        run.emit('status', 'designer', `Decor kit ${kind} with Muse Image: ${prompt}`, { data: { url: run.fileUrl(file) } });
-      } catch (error) {
-        run.emit('status', 'designer', `No decor ${kind} (${(error as Error).message.slice(0, 120)}): the slides go without it.`);
+    (['texture', 'element'] as const).map(async (kind) => {
+      const from = brandKit(host, kind) ?? (asked[kind] ? likedPiece(asked[kind]!, kind) : undefined);
+      let file: string | undefined;
+      if (from) {
+        file = path.join(run.dir, 'generated', `${kind}-library-${from.id}.png`);
+        await mkdir(path.dirname(file), { recursive: true });
+        await copyFile(from.file, file);
+        decor[kind] = from.prompt;
+        decor.reuse![kind] = from.id;
+        run.emit('status', 'designer', `Decor kit ${kind} from the library (${from.host === host ? "this brand's, which you liked" : `liked on ${from.business}`}): ${from.prompt}`, { data: { url: run.fileUrl(file) } });
+      } else if (decor[kind]) {
+        try {
+          file = await generateAsset(run, decor[kind]!, kind);
+          await keep(run, kind, decor[kind]!, file, extra);
+          run.emit('status', 'designer', `Decor kit ${kind} with Muse Image: ${decor[kind]}`, { data: { url: run.fileUrl(file) } });
+        } catch (error) {
+          run.emit('status', 'designer', `No decor ${kind} (${(error as Error).message.slice(0, 120)}): the slides go without it.`);
+        }
       }
+      if (kind === 'texture') decor.textureFile = file;
+      else decor.elementFile = file;
     }),
   );
 }

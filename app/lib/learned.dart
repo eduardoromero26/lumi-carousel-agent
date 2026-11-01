@@ -198,6 +198,14 @@ class _LessonCard extends StatelessWidget {
             ),
           ]),
           const SizedBox(height: 6),
+          if (card['image'] != null)
+            Container(
+              height: 160,
+              margin: const EdgeInsets.only(right: 8, bottom: 8),
+              decoration: BoxDecoration(color: Palette.border.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(8)),
+              clipBehavior: Clip.antiAlias,
+              child: Center(child: Image.network(Api.fileUrl(card['image'] as String), fit: BoxFit.contain)),
+            ),
           Padding(padding: const EdgeInsets.only(right: 8), child: SelectableText(card['text'] as String, style: const TextStyle(fontSize: 13, height: 1.4))),
           if (off)
             Container(

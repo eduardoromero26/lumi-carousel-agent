@@ -67,6 +67,8 @@ export type Decor = {
   idea?: string;
   textureFile?: string;
   elementFile?: string;
+  // Library pieces (ids) taken instead of generating: asked by the art director, kept only when used.
+  reuse?: { texture?: string; element?: string };
 };
 
 // What the fixer can change on a template slide without breaking it: sizes, where
@@ -109,7 +111,9 @@ export function normalizeDecor(raw: unknown): Decor | undefined {
     glow: d.glow === true,
     idea: typeof d.idea === 'string' ? d.idea.slice(0, 300) : undefined,
   };
-  return decor.texture || decor.element || decor.glow ? decor : undefined;
+  const id = (v: unknown) => (typeof v === 'string' && /^[\w-]{4,80}$/.test(v.trim()) ? v.trim() : undefined);
+  if (id(d.reuseTexture) || id(d.reuseElement)) decor.reuse = { texture: id(d.reuseTexture), element: id(d.reuseElement) };
+  return decor.texture || decor.element || decor.glow || decor.reuse ? decor : undefined;
 }
 
 export const LAYOUTS = ['cover', 'product', 'hero', 'photo_band', 'poster', 'cta'] as const;

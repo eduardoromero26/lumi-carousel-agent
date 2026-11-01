@@ -1,3 +1,4 @@
+import type { LibraryItem } from './library.js';
 import type { failureKinds } from './metrics.js';
 import type { calibration, Judged, Stat } from './taste.js';
 
@@ -6,7 +7,7 @@ import type { calibration, Judged, Stat } from './taste.js';
 // use (votes, the owner's words, docs/LESSONS.md, the queue's failures), never stored apart.
 // A card with an id is a lesson the agents apply: the owner can vote it, since a lesson
 // can be learned wrong; a dislike turns it off and its note says why.
-export type Card = { id?: string; title: string; text: string; evidence: string; tone: 'good' | 'bad' | 'info'; at?: string; vote?: 1 | -1; feedback?: string | null };
+export type Card = { id?: string; title: string; text: string; evidence: string; tone: 'good' | 'bad' | 'info'; at?: string; image?: string; vote?: 1 | -1; feedback?: string | null };
 export type Shelf = { id: string; title: string; about: string; cards: Card[] };
 export type LearningVote = { value: 1 | -1; note: string | null };
 export type Batch = { batch: string; voted: number; liked: number; stars: number | null; rated: number };
@@ -23,9 +24,11 @@ type Input = {
   failures: ReturnType<typeof failureKinds>;
   lessons: Map<string, string>;
   learned: Map<string, LearningVote>;
+  // What the runs paid to make (library.ts), with each file's URL.
+  made?: { item: LibraryItem; url: string }[];
 };
 
-export function library({ stats, votes, calibration: cal, batches, failures, lessons, learned }: Input): Shelf[] {
+export function library({ stats, votes, calibration: cal, batches, failures, lessons, learned, made = [] }: Input): Shelf[] {
   const voted = (card: Card): Card => {
     const v = card.id ? learned.get(card.id) : undefined;
     return v ? { ...card, vote: v.value, feedback: v.note } : card;
@@ -108,6 +111,26 @@ export function library({ stats, votes, calibration: cal, batches, failures, les
         evidence: `${b.voted} votes`,
         tone: b.liked / b.voted >= 0.6 ? 'good' : 'info',
       })),
+    },
+    {
+      id: 'decor',
+      title: 'Decor',
+      about: `The textures and elements Muse Image made for the decor kits. 👍 brings a piece back for its brand and lets other brands take it; 👎 with your words teaches the art director what not to ask for.${
+        made.some((m) => m.item.kind === 'cutout')
+          ? ` Also kept: ${made.filter((m) => m.item.kind === 'cutout').length} subjects SAM cut out, never paid twice for the same photo.`
+          : ''
+      }`,
+      cards: made
+        .filter((m) => m.item.kind !== 'cutout')
+        .map(({ item, url }) => ({
+          id: `library:${item.id}`,
+          title: `${item.kind === 'texture' ? 'Texture' : 'Element'} · ${item.business}`,
+          text: item.prompt,
+          evidence: [item.type, item.personality].filter(Boolean).join(' · '),
+          tone: 'info' as const,
+          at: item.at,
+          image: url,
+        })),
     },
     {
       id: 'references',

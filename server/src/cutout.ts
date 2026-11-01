@@ -1,6 +1,9 @@
+import { copyFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { config } from './config.js';
+import { brandCutout, keep as keepInLibrary, photoHash } from './library.js';
+import { hostOf } from './variety.js';
 import { addCost } from './llm.js';
 import type { Photo, Run } from './run.js';
 import { samPrompts } from './sam.js';
@@ -59,6 +62,17 @@ async function segment(input: Buffer, prompt: string): Promise<Segment[]> {
 // Cuts the subject out of a photo with SAM and adds it to the run as a cutout
 // photo (a PNG with the original pixels and a transparent background).
 export async function cutOut(run: Run, photo: Photo, subject: string): Promise<Photo | undefined> {
+  const id = `${photo.id}c`;
+  const file = path.join(run.dir, 'photos', `${id}.png`);
+  const hash = photoHash(photo.path);
+  // The same photo of the same brand was already cut out: SAM is not paid twice.
+  const kept = brandCutout(hostOf(run.brief.url), hash, subject);
+  if (kept) {
+    await copyFile(kept.file, file);
+    const cut: Photo = { id, path: file, cutout: true, grounded: kept.grounded, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
+    run.photos = [...run.photos.filter((p) => p.id !== id), cut];
+    return cut;
+  }
   const source = sharp(photo.path).rotate();
   const { width = 1, height = 1 } = await source.metadata();
   const sent = await source.clone().flatten({ background: '#ffffff' }).resize(1280, 1280, { fit: 'inside' }).jpeg({ quality: 90 }).toBuffer({ resolveWithObject: true });
@@ -91,8 +105,6 @@ export async function cutOut(run: Run, photo: Photo, subject: string): Promise<P
   // softened by a pixel so the edge doesn't look cut with scissors.
   const matte = await sharp(alpha, { raw: { width: w, height: h, channels: 1 } }).resize(width, height, { kernel: 'cubic' }).blur(0.8).extractChannel(0).raw().toBuffer();
   const rgb = await source.clone().removeAlpha().raw().toBuffer();
-  const id = `${photo.id}c`;
-  const file = path.join(run.dir, 'photos', `${id}.png`);
   // Trimmed to the product, so "whole and centered" means the product itself.
   await sharp(rgb, { raw: { width, height, channels: 3 } }).joinChannel(matte, { raw: { width, height, channels: 1 } }).png().toFile(file);
   await sharp(file).trim({ threshold: 1 }).toFile(`${file}.tmp.png`).then(async () => {
@@ -103,6 +115,7 @@ export async function cutOut(run: Run, photo: Photo, subject: string): Promise<P
   const grounded = alpha.subarray((h - foot) * w).some((v) => v > 0);
   const cut: Photo = { id, path: file, cutout: true, grounded, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
   run.photos = [...run.photos.filter((p) => p.id !== id), cut];
+  await keepInLibrary(run, 'cutout', subject, file, { source: hash, grounded, personality: run.system?.personality }).catch(() => undefined);
   return cut;
 }
 

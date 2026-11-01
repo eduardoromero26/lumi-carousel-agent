@@ -14,8 +14,10 @@ import type { Asset } from './run.js';
 // Some hosts (Mixkit, Openverse) hang over IPv6 on this network: IPv4 first.
 setDefaultResultOrder('ipv4first');
 import { Run, type Brief } from './run.js';
-import { backfill, calibrationReport, listCarousels, saveCarousel, saveVote, taste, votesOf } from './db.js';
-import { batchReport, batchSummaries, enqueue, failuresReport, isPaused, markFailed, markFinished, markRunning, nextWaiting, queueItems, removeWaiting, savedLists, setPaused, type QueueItem } from './queue.js';
+import { backfill, calibrationReport, judgedVotes, learningVotes, listCarousels, rawTaste, saveCarousel, saveLearningVote, saveVote, taste, votesOf } from './db.js';
+import { library } from './learned.js';
+import { failureKinds } from './metrics.js';
+import { batchReport, batchSummaries, enqueue, failuresReport, historyRows, isPaused, lessons, markFailed, markFinished, markRunning, nextWaiting, queueItems, removeWaiting, savedLists, setPaused, type QueueItem } from './queue.js';
 
 Run.onSave = (run) => {
   try {
@@ -110,6 +112,24 @@ const server = http.createServer(async (req, res) => {
 
     // GET /api/calibration: how often the critic agrees with the owner's votes, and the likes per batch
     if (req.method === 'GET' && url.pathname === '/api/calibration') return json(res, 200, calibrationReport());
+
+    // GET /api/learned: what the agents learned, as shelves of cards
+    if (req.method === 'GET' && url.pathname === '/api/learned') {
+      const { batches, ...cal } = calibrationReport();
+      return json(
+        res,
+        200,
+        library({ stats: rawTaste(), votes: judgedVotes(), calibration: cal, batches, failures: failureKinds(historyRows()), lessons: lessons(), learned: learningVotes() }),
+      );
+    }
+
+    // POST /api/learned/vote {id: a card's id, value: 1 | -1 | 0, note?: why it was learned wrong}
+    if (req.method === 'POST' && url.pathname === '/api/learned/vote') {
+      const { id, value, note } = (await readJson(req)) as { id?: unknown; value?: number; note?: unknown };
+      if (typeof id !== 'string' || !/^(taste|note|lesson):.+/.test(id) || ![1, -1, 0].includes(Number(value))) return json(res, 400, { error: 'Bad vote' });
+      saveLearningVote(id, Number(value), typeof note === 'string' ? note : undefined);
+      return json(res, 200, Object.fromEntries(learningVotes()));
+    }
 
     let run = parts[0] === 'api' && parts[1] === 'runs' && parts[2] ? runs.get(parts[2]) : undefined;
     if (!run && parts[0] === 'api' && parts[1] === 'runs' && parts[2]) {

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { hashtagList, Run } from './run.js';
+import { noteId, tasteId, type LearningVote } from './learned.js';
 import { calibration, featuresOf, tasteStats, type Judged, type Stat, type Verdict, type Vote } from './taste.js';
 import { lookOf, type Look } from './variety.js';
 
@@ -145,10 +146,55 @@ export function votesOf(runId: string): Record<string, number> {
   return Object.fromEntries(rows.map((r) => [r.target, r.value]));
 }
 
+// The owner's votes on what the agents learned (a card of the library: "taste:<key>=<value>",
+// "note:<run>:<target>", "lesson:<kind>"). A dislike turns that lesson off, its note says why.
+db.exec(`CREATE TABLE IF NOT EXISTS learning_votes (
+  id TEXT PRIMARY KEY,
+  value INTEGER NOT NULL,
+  note TEXT,
+  at TEXT NOT NULL
+)`);
+
+export function learningVotes(): Map<string, LearningVote> {
+  const rows = db.prepare(`SELECT id, value, note FROM learning_votes`).all() as { id: string; value: number; note: string | null }[];
+  return new Map(rows.map((r) => [r.id, { value: r.value > 0 ? 1 : -1, note: r.note }]));
+}
+
+export function saveLearningVote(id: string, value: number, note?: string): void {
+  if (value === 0) {
+    db.prepare(`DELETE FROM learning_votes WHERE id = ?`).run(id);
+    return;
+  }
+  db.prepare(
+    `INSERT INTO learning_votes (id, value, note, at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET value = excluded.value, note = excluded.note, at = excluded.at`,
+  ).run(id, value > 0 ? 1 : -1, note?.trim().slice(0, 600) || null, new Date().toISOString());
+}
+
 // Every vote, as the stats of each design choice.
-export function taste(): Stat[] {
+export function rawTaste(): Stat[] {
   const rows = db.prepare(`SELECT value, features FROM votes`).all() as { value: number; features: string }[];
   return tasteStats(rows.map((r) => ({ value: r.value > 0 ? 1 : -1, features: JSON.parse(r.features) }) as Vote));
+}
+
+// What the agents use: without the conclusions the owner said are wrong.
+export function taste(): Stat[] {
+  const off = learningVotes();
+  return rawTaste().filter((s) => off.get(tasteId(s))?.value !== -1);
+}
+
+// The owner's dislikes with their words, minus the ones the owner said were learned wrong.
+export function criticLessons(): Judged[] {
+  const off = learningVotes();
+  return judgedVotes().filter((v) => off.get(noteId(v))?.value !== -1);
+}
+
+// What the owner said is wrong in the design conclusions, for the art director.
+export function tasteCorrections(): string {
+  return [...learningVotes()]
+    .filter(([id, v]) => id.startsWith('taste:') && v.value < 0 && v.note)
+    .map(([id, v]) => `- "${id.slice(6).replace('=', ' ')}": ${v.note}`)
+    .join('\n');
 }
 
 // Fills the table from the runs already on disk, the first time and after a crash,

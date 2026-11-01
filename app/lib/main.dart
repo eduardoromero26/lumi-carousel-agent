@@ -8,6 +8,7 @@ import 'package:web/web.dart' as web;
 
 import 'api.dart';
 import 'feed.dart';
+import 'learned.dart';
 import 'queue.dart';
 
 void main() => runApp(const CarouselAgentApp());
@@ -80,8 +81,8 @@ class CarouselAgentApp extends StatelessWidget {
 }
 
 // Create (the studio where the agents work), Feed (every carousel as it would look on
-// Instagram) and Queue (many websites in a row). ?view=feed|queue opens that tab;
-// ?run=<id> opens that run in Create.
+// Instagram), Queue (many websites in a row) and Learned (what the agents learned).
+// ?view=feed|queue|learned opens that tab; ?run=<id> opens that run in Create.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -90,7 +91,7 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int tab = const {'feed': 1, 'queue': 2}[Uri.base.queryParameters['view']] ?? 0;
+  int tab = const {'feed': 1, 'queue': 2, 'learned': 3}[Uri.base.queryParameters['view']] ?? 0;
 
   @override
   Widget build(BuildContext context) {
@@ -126,6 +127,8 @@ class _HomeShellState extends State<HomeShell> {
               tabButton(1, Icons.dynamic_feed_outlined, 'Feed'),
               const SizedBox(width: 4),
               tabButton(2, Icons.playlist_play, 'Queue'),
+              const SizedBox(width: 4),
+              tabButton(3, Icons.local_library_outlined, 'Learned'),
             ]),
           ),
           const Divider(height: 1),
@@ -134,6 +137,7 @@ class _HomeShellState extends State<HomeShell> {
               const StudioPage(),
               FeedPage(active: tab == 1),
               QueuePage(active: tab == 2),
+              LearnedPage(active: tab == 3),
             ]),
           ),
         ]),

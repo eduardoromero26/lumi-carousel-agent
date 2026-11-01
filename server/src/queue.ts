@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
-import { db } from './db.js';
+import { db, learningVotes } from './db.js';
 import { failureHistory, metricsOf, parseLessons, reportMarkdown, summarize, type HistoryRow, type QueueRow, type RunMetrics } from './metrics.js';
 import type { Run } from './run.js';
 
@@ -159,13 +159,29 @@ export function batchReport(batch: string): string {
   return reportMarkdown(rows, summarize(batch, rows));
 }
 
+// A lesson the owner voted down keeps its text, with their words under it.
 export function failuresReport(): string {
-  const rows = (db.prepare(`SELECT * FROM queue WHERE metrics IS NOT NULL ORDER BY id`).all() as Row[]).map((r): HistoryRow => {
+  const votes = learningVotes();
+  const marked = new Map(
+    [...lessons()].map(([kind, text]) => {
+      const vote = votes.get(`lesson:${kind}`);
+      return [kind, vote?.value === -1 ? `${text}\n\n**The owner says this did not fix it${vote.note ? `:** ${vote.note}` : '.**'}` : text];
+    }),
+  );
+  return failureHistory(historyRows(), marked);
+}
+
+export function historyRows(): HistoryRow[] {
+  return (db.prepare(`SELECT * FROM queue WHERE metrics IS NOT NULL ORDER BY id`).all() as Row[]).map((r): HistoryRow => {
     const item = itemOf(r);
     return { url: item.url, status: item.status, runId: item.runId, metrics: item.metrics, note: item.note, batch: item.batch, finishedAt: item.finishedAt };
   });
+}
+
+// docs/LESSONS.md: what fixed each kind of failure.
+export function lessons(): Map<string, string> {
   const file = path.resolve('../docs/LESSONS.md');
-  return failureHistory(rows, parseLessons(existsSync(file) ? readFileSync(file, 'utf8') : ''));
+  return parseLessons(existsSync(file) ? readFileSync(file, 'utf8') : '');
 }
 
 // Also on disk (runs/batches/<batch>.md and FAILURES.md), where an agent improving the prompts can read them.

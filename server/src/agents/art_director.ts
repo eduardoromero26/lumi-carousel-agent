@@ -7,7 +7,7 @@ import type { Gimp } from '../gimp.js';
 import { chatJson, imagePart, type ContentPart } from '../llm.js';
 import { generateAsset } from '../muse_image.js';
 import type { Plan, Run } from '../run.js';
-import { recentLooks, taste } from '../db.js';
+import { recentLooks, taste, tasteCorrections } from '../db.js';
 import { describeTaste } from '../taste.js';
 import { describeFonts, describeLooks, freshen } from '../variety.js';
 import { ART_DIRECTOR } from './prompts.js';
@@ -20,6 +20,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   const recent = recentLooks(run.id);
   const stats = taste();
   const liked = describeTaste(stats, ['composition', 'personality', 'heading font', 'body font', 'device', 'logo', 'align', 'case', 'ground', 'decor']);
+  const corrections = tasteCorrections();
   const parts: ContentPart[] = [
     {
       type: 'text',
@@ -30,6 +31,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
         `Fonts the website uses: ${siteFonts.join(', ') || 'none found'}. Of those, on Google Fonts (installable): ${onGoogle.join(', ') || 'none'}.`,
         `If none fits, the personality families and their fonts:\n${describeFonts()}`,
         liked ? `The owner's votes on past carousels (follow them where this brand allows): ${liked}` : '',
+        corrections ? `The owner said these conclusions from the votes were learned wrong (do not apply them; their words):\n${corrections}` : '',
         recent.length ? `The agency's last carousels for other brands (composition, headlines / text, device, logo, alignment, case):\n${describeLooks(recent)}` : '',
         `Slides: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role}${s.photo ? ' (photo)' : ''}`).join('; ')}.`,
         plan.slides.every((s) => s.eyebrow) ? 'Every slide has a short label above its headline.' : 'The slides have no label above the headline: "pill_label" is not an option.',

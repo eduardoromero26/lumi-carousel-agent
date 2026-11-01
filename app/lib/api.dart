@@ -130,6 +130,23 @@ class Api {
     return jsonDecode(res.body) as Map<String, dynamic>;
   }
 
+  // What the agents learned: shelves of cards, each {id?, title, text, evidence, tone, vote?, feedback?}.
+  static Future<List<Map<String, dynamic>>> learned() async {
+    final res = await http.get(Uri.parse('$apiUrl/api/learned'));
+    if (res.statusCode != 200) throw Exception('Error ${res.statusCode}');
+    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  // The owner's vote on a lesson: 1 confirms it, -1 turns it off (the note says why), 0 takes it back.
+  static Future<void> voteLearned(String id, int value, {String? note}) async {
+    final res = await http.post(
+      Uri.parse('$apiUrl/api/learned/vote'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'id': id, 'value': value, if (note != null && note.trim().isNotEmpty) 'note': note.trim()}),
+    );
+    if (res.statusCode != 200) throw Exception('Error ${res.statusCode}');
+  }
+
   // The queue: {paused, busy, running, items, batches}.
   static Future<Map<String, dynamic>> queue() async {
     final res = await http.get(Uri.parse('$apiUrl/api/queue'));

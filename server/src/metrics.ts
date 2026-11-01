@@ -221,6 +221,23 @@ export type HistoryRow = QueueRow & { batch: string; finishedAt: string | null }
 // Every failure seen in any batch, most frequent first: how often per carousel in
 // each batch (did the last change help?), the latest examples and what fixed it before.
 export function failureHistory(rows: HistoryRow[], lessons: Map<string, string>): string {
+  const { finished, runsPerBatch, kinds } = failureKinds(rows);
+  const lines = ['# Failure history', '', `${finished.length} finished runs in ${Object.keys(runsPerBatch).length} batches. Rates are per carousel. What fixed a failure goes in docs/LESSONS.md under "## <kind>".`, ''];
+  for (const [kind, k] of [...kinds].sort((a, b) => b[1].total - a[1].total)) {
+    lines.push(`## ${kind} (${k.total})`, '');
+    for (const [b, n] of Object.entries(k.perBatch)) lines.push(`- ${b}: ${round(n / runsPerBatch[b], 2)} per carousel (${n} in ${runsPerBatch[b]} runs)`);
+    const lesson = lessons.get(kind);
+    lines.push('', `**Fixed before:** ${lesson ?? 'nothing yet'}`, '', 'Latest examples:');
+    for (const x of k.examples.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5)) {
+      lines.push(`- ${x.url}${x.slide ? ` slide ${x.slide}` : ''} (run ${x.runId}, ${x.batch}): ${x.note.replace(/\n/g, ' ')}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
+// Each failure kind with how often it happened, in all and per batch, and its examples.
+export function failureKinds(rows: HistoryRow[]) {
   const finished = rows.filter((r) => r.metrics);
   const runsPerBatch: Record<string, number> = {};
   for (const r of finished) runsPerBatch[r.batch] = (runsPerBatch[r.batch] ?? 0) + 1;
@@ -241,16 +258,5 @@ export function failureHistory(rows: HistoryRow[], lessons: Map<string, string>)
       kinds.set(kind, k);
     }
   }
-  const lines = ['# Failure history', '', `${finished.length} finished runs in ${Object.keys(runsPerBatch).length} batches. Rates are per carousel. What fixed a failure goes in docs/LESSONS.md under "## <kind>".`, ''];
-  for (const [kind, k] of [...kinds].sort((a, b) => b[1].total - a[1].total)) {
-    lines.push(`## ${kind} (${k.total})`, '');
-    for (const [b, n] of Object.entries(k.perBatch)) lines.push(`- ${b}: ${round(n / runsPerBatch[b], 2)} per carousel (${n} in ${runsPerBatch[b]} runs)`);
-    const lesson = lessons.get(kind);
-    lines.push('', `**Fixed before:** ${lesson ?? 'nothing yet'}`, '', 'Latest examples:');
-    for (const x of k.examples.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 5)) {
-      lines.push(`- ${x.url}${x.slide ? ` slide ${x.slide}` : ''} (run ${x.runId}, ${x.batch}): ${x.note.replace(/\n/g, ' ')}`);
-    }
-    lines.push('');
-  }
-  return lines.join('\n');
+  return { finished, runsPerBatch, kinds };
 }

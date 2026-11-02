@@ -1,4 +1,4 @@
-import { COMPOSITIONS, type DesignSystem } from './design.js';
+import { COMPOSITIONS, luminance, type DesignSystem } from './design.js';
 import { sampleChoice, votesOn, type Stat } from './taste.js';
 import type { Run } from './run.js';
 
@@ -206,13 +206,19 @@ export function freshen(system: DesignSystem, siteFonts: string[], recent: Look[
     changes.push(`composition ${system.composition} → ${composition}`);
     system.composition = composition;
   }
+  // Text over a full-bleed photo needs a dark shadow under it: on a light base the gradient
+  // becomes a pale veil over the photo, so the photo goes in a window instead.
+  if (system.composition === 'overlay' && luminance(system.base) > 0.3) {
+    changes.push('composition overlay → window (a light base would veil the photo)');
+    system.composition = 'window';
+  }
   const blocks = (c: string) => last.filter((l) => l.colorSlides === c).length;
   if (most(blocks(system.colorSlides))) {
     const colorSlides = (['both', 'cover', 'cta', 'none'] as const).filter((c) => c !== system.colorSlides).sort((a, b) => blocks(a) - blocks(b))[0];
     changes.push(`color blocks ${system.colorSlides} → ${colorSlides}`);
     system.colorSlides = colorSlides;
   }
-  const devices = (['underline', 'frame', 'pill_label'] as const).filter((d) => d !== 'pill_label' || hasLabels);
+  const devices = (['underline', 'pill_label'] as const).filter((d) => d !== 'pill_label' || hasLabels);
   const count = (d: string) => last.filter((l) => l.device === d).length;
   if (most(count(system.device)) || disliked('device', system.device)) {
     const device = pick('device', devices.filter((d) => d !== system.device), count);

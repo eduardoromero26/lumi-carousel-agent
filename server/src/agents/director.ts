@@ -93,8 +93,8 @@ function fixLayouts(run: Run, plan: Plan): void {
     if (card && products.length === shown.length && run3 >= 2 && run3 % 2 === 0 && photoOf(s)?.cutout) s.layout = 'hero';
   }
   if (card && products.length < shown.length) for (const s of shown) if (s.layout === 'hero') s.layout = 'product';
-  // The label above the headline is part of the system: on every slide or on none.
-  if (plan.slides.some((s) => !s.eyebrow?.trim())) for (const s of plan.slides) s.eyebrow = undefined;
+  // A label above every headline is the template look owners reject: only the cover keeps one.
+  for (const s of plan.slides.slice(1)) s.eyebrow = undefined;
 }
 
 // The website's photos are the point of reading it: slides the director left

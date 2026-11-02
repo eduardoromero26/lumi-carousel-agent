@@ -19,8 +19,8 @@ export type DesignSystem = {
   ink: string;
   accent: string;
   accentInk: string;
-  // The one recurring brand device.
-  device: 'underline' | 'pill_label' | 'frame';
+  // The one recurring brand device (the thin frame around the slide was retired: the template look).
+  device: 'underline' | 'pill_label';
   logoPosition: 'top_center' | 'bottom_center';
   headlineCase: 'as_is' | 'upper';
   // "Swipe »" in the language of the slides, on the cover.
@@ -140,6 +140,40 @@ export function readableOn(ground: string, ink: string): string {
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
+function toHsl(hex: string): [number, number, number] {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (!d) return [0, 0, l];
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) / 6 : max === g ? ((b - r) / d + 2) / 6 : ((r - g) / d + 4) / 6;
+  return [h, s, l];
+}
+
+function fromHsl(h: number, s: number, l: number): string {
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const ch = (t: number) => {
+    t = (t + 1) % 1;
+    const v = t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p;
+    return Math.round(v * 255).toString(16).padStart(2, '0');
+  };
+  return `#${ch(h + 1 / 3)}${ch(h)}${ch(h - 1 / 3)}`;
+}
+
+// A ground the photos can stand on: a saturated mid tone (hot pink, pure red, bright
+// yellow, the "loud" grounds owners called Canva 2015) goes deep, or pastel when it is a
+// light color; neutrals, darks and pastels stay as they are.
+export function calmGround(hex: string): string {
+  const [h, s, l] = toHsl(hex);
+  if (s <= 0.35 || l >= 0.86 || l <= 0.22) return hex;
+  // Oranges and yellows turn muddy brown when deepened: they go pastel (peach, butter).
+  const warm = h >= 20 / 360 && h <= 70 / 360;
+  return warm || luminance(hex) > 0.4 || l >= 0.62 ? fromHsl(h, Math.min(s, 0.75), 0.9) : fromHsl(h, Math.min(s, 0.62), Math.min(l, 0.34));
+}
+
 // The art director's answer, made safe: real colors, readable pairs, sane limits.
 export function normalizeSystem(raw: Partial<DesignSystem>, fallbackColors: string[]): DesignSystem {
   const color = (v: unknown, fallback: string) => (typeof v === 'string' && HEX.test(v) ? v.toLowerCase() : fallback);
@@ -147,11 +181,12 @@ export function normalizeSystem(raw: Partial<DesignSystem>, fallbackColors: stri
     const n = Math.round(Number(v) / 100) * 100;
     return n >= 100 && n <= 900 ? n : fallback;
   };
-  const base = color(raw.base, '#111111');
+  const base = calmGround(color(raw.base, '#111111'));
   const accent = color(raw.accent, fallbackColors.find((c) => HEX.test(c) && contrast(c, base) > 1.6) ?? '#ffffff');
   const ink = readableOn(base, color(raw.ink, '#ffffff'));
   // The gradient's second color must keep the text readable too, or the ground stays flat.
-  const ground2 = raw.ground === 'gradient' && typeof raw.ground2 === 'string' && HEX.test(raw.ground2) && contrast(raw.ground2, ink) >= 4.5 ? raw.ground2.toLowerCase() : undefined;
+  const second = typeof raw.ground2 === 'string' && HEX.test(raw.ground2) ? calmGround(raw.ground2.toLowerCase()) : undefined;
+  const ground2 = raw.ground === 'gradient' && second && contrast(second, ink) >= 4.5 ? second : undefined;
   const radius = Math.round(Number(raw.radius));
   const tracking = Number(raw.tracking);
   return {
@@ -163,7 +198,7 @@ export function normalizeSystem(raw: Partial<DesignSystem>, fallbackColors: stri
     ink,
     accent,
     accentInk: readableOn(accent, color(raw.accentInk, '#111111')),
-    device: raw.device === 'pill_label' || raw.device === 'frame' ? raw.device : 'underline',
+    device: raw.device === 'pill_label' ? 'pill_label' : 'underline',
     logoPosition: raw.logoPosition === 'bottom_center' ? 'bottom_center' : 'top_center',
     headlineCase: raw.headlineCase === 'upper' ? 'upper' : 'as_is',
     swipeLabel: typeof raw.swipeLabel === 'string' && raw.swipeLabel.trim() ? raw.swipeLabel.trim().slice(0, 24) : 'Swipe »',
@@ -186,13 +221,14 @@ export function normalizeSystem(raw: Partial<DesignSystem>, fallbackColors: stri
   };
 }
 
-// The colors of one slide: a color slide swaps them, the accent becomes the ground and
-// the base the accent (labels, the button), so the set keeps the same two colors.
+// The colors of one slide: a color slide swaps them, the accent (calmed down as a
+// ground) becomes the ground and the base the accent (labels, the button), so the set
+// keeps the same two colors.
 export function paletteFor(s: DesignSystem, layout: string): { ground: string; ink: string; accent: string; accentInk: string; colored: boolean } {
   const colored = (layout === 'cover' && (s.colorSlides === 'cover' || s.colorSlides === 'both')) || (layout === 'cta' && (s.colorSlides === 'cta' || s.colorSlides === 'both'));
-  return colored
-    ? { ground: s.accent, ink: s.accentInk, accent: s.base, accentInk: s.ink, colored }
-    : { ground: s.base, ink: s.ink, accent: s.accent, accentInk: s.accentInk, colored };
+  if (!colored) return { ground: s.base, ink: s.ink, accent: s.accent, accentInk: s.accentInk, colored };
+  const ground = calmGround(s.accent);
+  return { ground, ink: readableOn(ground, s.accentInk), accent: s.base, accentInk: s.ink, colored };
 }
 
 // The cutout composition cuts the photo slides' subject out; product cards and the hero keep their own template.
@@ -204,7 +240,7 @@ const COMPOSITION_NOTES: Record<Composition, string> = {
   stacked: 'Photo slides: the text on the ground at the top, the photo below it fading into the ground.',
   photo_top: 'Photo slides: the photo full-width at the top fading into the ground, the text below it, the logo at the foot.',
   window: 'Photo slides: the photo in a window inside the margins, on the ground, with the text beside it, never over it.',
-  overlay: 'Photo slides: the photo full-bleed with the text over a soft gradient at its quietest edge.',
+  overlay: 'Photo slides: the photo full-bleed with the text over a short dark gradient at its quietest edge (a shadow under the text, never a colored veil over the photo).',
   cutout: 'Photo slides: the person or product cut out of its photo, big, standing at the foot of the slide on a solid color block with a big accent circle behind it; the text on the ground above it (on purpose: no photo rectangle, no fade).',
   split: 'Photo slides: the photo full-width at the top with a hard edge (slanted for lively brands) and a thin accent stripe along it, the text on the solid ground below; the photo may crop a body, never a face (on purpose: no fade).',
 };

@@ -39,7 +39,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
         decorTaste,
         recent.length ? `The agency's last carousels for other brands (composition, headlines / text, device, logo, alignment, case):\n${describeLooks(recent)}` : '',
         `Slides: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role}${s.photo ? ' (photo)' : ''}`).join('; ')}.`,
-        plan.slides.every((s) => s.eyebrow) ? 'Every slide has a short label above its headline.' : 'The slides have no label above the headline: "pill_label" is not an option.',
+        plan.slides[0]?.eyebrow ? 'The cover has a short label above its headline (the other slides have none).' : 'No slide has a label above the headline: "pill_label" is not an option.',
         `Language of the slides: ${run.brief.language ?? 'English'}.`,
         run.logo ? 'The logo:' : 'There is no logo.',
       ].join('\n'),
@@ -83,7 +83,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
     return ask(config.modelId);
   });
   const system = normalizeSystem(raw, run.brief.brandColors ?? []);
-  const changes = freshen(system, onGoogle, recent, plan.slides.every((s) => s.eyebrow), stats);
+  const changes = freshen(system, onGoogle, recent, !!plan.slides[0]?.eyebrow, stats);
   if (changes.length) run.emit('status', 'designer', `So it doesn't look like the last brands: ${changes.join('; ')}.`);
   if (system.decor) await makeDecor(run, system.decor, { type: plan.business_type, personality: system.personality });
 

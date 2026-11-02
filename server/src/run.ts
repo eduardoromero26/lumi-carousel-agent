@@ -27,8 +27,8 @@ export type Brief = {
   brandColors?: string[];
 };
 
-// A backdrop is a website image with text baked in: it only works softened and
-// under a shade, as the background behind the slide's own text.
+// A backdrop is a website image with text baked in: it is shown whole in a window,
+// never under the slide's text.
 // A cutout is a product shown whole instead of covering the slide: on a transparent
 // background (over the brand color) or on a plain studio background, its "matte".
 // "content" is where the product sits in the file (0..1, its margins trimmed) and
@@ -44,6 +44,8 @@ export type Photo = {
   cropped?: boolean;
   // A cutout whose subject reaches its photo's bottom edge (a person cut at the waist): it stands on the slide's foot.
   grounded?: boolean;
+  // A cutout of a person: only a person cut at the waist may bleed off the slide's foot.
+  person?: boolean;
   // The website asset it comes from (none for the owner's uploads).
   asset?: string;
 };

@@ -59,17 +59,78 @@ async function segment(input: Buffer, prompt: string): Promise<Segment[]> {
   return segments.sort((a, b) => b.confidence - a.confidence);
 }
 
+// Measured on the owner's votes: a sofa with a hole bitten out of it or a person split
+// in two comes in pieces, a whole subject is one piece (bikes and chairs included).
+const MIN_MAIN_PIECE = 0.85;
+const MAX_RAGGED = 13;
+// Smaller than this it can't be the hero of a 1080 px slide without pixelating.
+const MIN_CUTOUT_SIDE = 600;
+
+// Why a cutout is not good enough to show, or undefined when it is.
+export async function cutoutFlaw(file: string): Promise<string | undefined> {
+  const { width = 0, height = 0 } = await sharp(file).metadata();
+  if (Math.max(width, height) < MIN_CUTOUT_SIDE) return `too small (${width}x${height} px)`;
+  const { data, info } = await sharp(file).ensureAlpha().extractChannel(3).resize(400, 400, { fit: 'inside' }).raw().toBuffer({ resolveWithObject: true });
+  const { width: w, height: h } = info;
+  const on = (x: number, y: number) => x >= 0 && y >= 0 && x < w && y < h && data[y * w + x] > 127;
+  let area = 0;
+  let edge = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (!on(x, y)) continue;
+      area++;
+      if (!on(x - 1, y) || !on(x + 1, y) || !on(x, y - 1) || !on(x, y + 1)) edge++;
+    }
+  }
+  if (!area) return 'empty';
+  // The biggest connected piece against the whole cutout.
+  const seen = new Uint8Array(w * h);
+  let biggest = 0;
+  for (let i = 0; i < w * h; i++) {
+    if (seen[i] || data[i] <= 127) continue;
+    let n = 0;
+    const stack = [i];
+    seen[i] = 1;
+    while (stack.length) {
+      const j = stack.pop()!;
+      n++;
+      const x = j % w;
+      const y = (j - x) / w;
+      for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+        const k = ny * w + nx;
+        if (on(nx, ny) && !seen[k]) {
+          seen[k] = 1;
+          stack.push(k);
+        }
+      }
+    }
+    biggest = Math.max(biggest, n);
+  }
+  if (biggest / area < MIN_MAIN_PIECE) return `in pieces (the main piece is ${Math.round((100 * biggest) / area)} %)`;
+  if (edge / Math.sqrt(area) > MAX_RAGGED) return 'ragged edge';
+  // A bouquet that came out as its wrapping and a spray of petals: sparse in its own box and ragged.
+  if (area / (w * h) < 0.3 && edge / Math.sqrt(area) > 10) return 'scattered';
+  return undefined;
+}
+
 // Cuts the subject out of a photo with SAM and adds it to the run as a cutout
-// photo (a PNG with the original pixels and a transparent background).
+// photo (a PNG with the original pixels and a transparent background). Undefined when
+// SAM finds nothing or the cut is not clean enough to show.
 export async function cutOut(run: Run, photo: Photo, subject: string): Promise<Photo | undefined> {
   const id = `${photo.id}c`;
   const file = path.join(run.dir, 'photos', `${id}.png`);
   const hash = photoHash(photo.path);
+  const person = subject === 'person';
   // The same photo of the same brand was already cut out: SAM is not paid twice.
   const kept = brandCutout(hostOf(run.brief.url), hash, subject);
   if (kept) {
+    const flaw = await cutoutFlaw(kept.file);
+    if (flaw) {
+      run.emit('status', 'designer', `The ${subject} cut out of photo ${photo.id} is ${flaw}: the photo goes whole.`);
+      return undefined;
+    }
     await copyFile(kept.file, file);
-    const cut: Photo = { id, path: file, cutout: true, grounded: kept.grounded, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
+    const cut: Photo = { id, path: file, cutout: true, grounded: kept.grounded, person, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
     run.photos = [...run.photos.filter((p) => p.id !== id), cut];
     return cut;
   }
@@ -113,9 +174,15 @@ export async function cutOut(run: Run, photo: Photo, subject: string): Promise<P
   });
   const foot = Math.max(1, Math.round(h * 0.01));
   const grounded = alpha.subarray((h - foot) * w).some((v) => v > 0);
-  const cut: Photo = { id, path: file, cutout: true, grounded, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
-  run.photos = [...run.photos.filter((p) => p.id !== id), cut];
+  // Kept in the library even when flawed: SAM was paid, and the next run reads the flaw from the file.
   await keepInLibrary(run, 'cutout', subject, file, { source: hash, grounded, personality: run.system?.personality }).catch(() => undefined);
+  const flaw = await cutoutFlaw(file);
+  if (flaw) {
+    run.emit('status', 'designer', `The ${subject} cut out of photo ${photo.id} is ${flaw}: the photo goes whole.`);
+    return undefined;
+  }
+  const cut: Photo = { id, path: file, cutout: true, grounded, person, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
+  run.photos = [...run.photos.filter((p) => p.id !== id), cut];
   return cut;
 }
 
@@ -169,7 +236,8 @@ export async function keyOut(run: Run, photo: Photo): Promise<Photo | undefined>
   const out = await sharp(await sharp(rgb, { raw: { width, height, channels: 3 } }).joinChannel(matte, { raw: { width, height, channels: 1 } }).png().toBuffer())
     .trim({ threshold: 1 })
     .toFile(file);
+  if (out.width <= 16 || (await cutoutFlaw(file))) return undefined;
   const keyed: Photo = { id, path: file, cutout: true, content: { x1: 0, y1: 0, x2: 1, y2: 1 }, note: `${photo.note ?? ''} (its plain background removed)`.trim() };
   run.photos = [...run.photos.filter((p) => p.id !== id), keyed];
-  return out.width > 16 ? keyed : undefined;
+  return keyed;
 }

@@ -15,6 +15,10 @@ const W = SLIDE.width;
 const H = SLIDE.height;
 const M = 80;
 const TEXT_W = W - 2 * M;
+// How much a photo may grow before it pixelates (owners saw it at 2x); a cutout on a
+// clean ground, scaled with Lanczos and sharpened, holds a little more.
+const MAX_UP = 1.3;
+const MAX_CUT = 1.5;
 
 // Python helpers that run inside GIMP before every template.
 const LIB = String.raw`
@@ -120,7 +124,7 @@ const py = (v: unknown) => JSON.stringify(v);
 async function gradient(file: string, color: string, from: 'bottom' | 'top', start: number): Promise<void> {
   const [y1, y2] = from === 'bottom' ? [start / H, 1] : [start / H, 0];
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs><linearGradient id="g" x1="0" y1="${y1}" x2="0" y2="${y2}">
-    <stop offset="0" stop-color="${color}" stop-opacity="0"/><stop offset="0.45" stop-color="${color}" stop-opacity="0.72"/><stop offset="1" stop-color="${color}" stop-opacity="0.96"/>
+    <stop offset="0" stop-color="${color}" stop-opacity="0"/><stop offset="0.45" stop-color="${color}" stop-opacity="0.66"/><stop offset="1" stop-color="${color}" stop-opacity="0.92"/>
   </linearGradient></defs><rect width="${W}" height="${H}" fill="url(#g)"/></svg>`;
   await sharp(Buffer.from(svg)).png().toFile(file);
 }
@@ -137,8 +141,9 @@ const FULL: Rect = { x1: 0, y1: 0, x2: 1, y2: 1 };
 // The card a transparent cutout sits on, so every product slide has the same card.
 const CARD_LIGHT = '#f4f4f4';
 // Every product card has the same size and place: the text below takes what is left.
-// The hero shows the product bigger, loose on the ground.
-const CARD = { product: 620, hero: 760, cta: 440 };
+// The hero shows the product bigger, loose on the ground. The product is the ad: more
+// than half the slide.
+const CARD = { product: 740, hero: 860, cta: 480 };
 
 // Labels and buttons follow the brand's corners: round enough becomes a pill.
 const corner = (radius: number, h: number) => (radius >= 24 ? Math.round(h / 2) : radius);
@@ -256,13 +261,13 @@ function cover(img: { width: number; height: number }, focus = { x: 0.5, y: 0.5 
 
 // The photo in a region with `keep` (0..1 of the photo) whole and centered: as big as
 // covering the region allows, smaller when covering would cut what must stay.
-function fitWhole(img: { width: number; height: number }, region: Rect, keep: Rect | undefined, photoScale = 1, margin = 40): Fit {
+function fitWhole(img: { width: number; height: number }, region: Rect, keep: Rect | undefined, photoScale = 1, margin = 40, maxScale = Infinity): Fit {
   const rw = region.x2 - region.x1;
   const rh = region.y2 - region.y1;
   const k = keep ?? FULL;
   const coverScale = Math.max(rw / img.width, rh / img.height);
   const whole = keep ? Math.min((rw - 2 * margin) / ((k.x2 - k.x1) * img.width), (rh - 2 * margin) / ((k.y2 - k.y1) * img.height)) : coverScale;
-  const scale = Math.min(coverScale, whole) * photoScale;
+  const scale = Math.min(coverScale, whole, maxScale) * photoScale;
   const w = Math.round(img.width * scale);
   const h = Math.round(img.height * scale);
   const x = region.x1 + rw / 2 - ((k.x1 + k.x2) / 2) * w;
@@ -305,7 +310,8 @@ async function edgePhoto(file: string, frame: Fit, bottom: number, slant: number
   return { ...vis, y2: Math.min(vis.y2, bottom - slant) };
 }
 
-// A big accent circle behind a cutout, kept off the text above it.
+// A big circle behind a cutout, tone on tone with the ground (a full accent disc
+// behind every product shouted), kept off the text above it.
 async function disc(file: string, color: string, product: Rect, top: number): Promise<void> {
   const pw = product.x2 - product.x1;
   const ph = product.y2 - product.y1;
@@ -320,10 +326,21 @@ async function disc(file: string, color: string, product: Rect, top: number): Pr
 function contain(img: { width: number; height: number }, box: Rect, content: Rect, pad: number, photoScale = 1): Fit {
   const bw = box.x2 - box.x1;
   const bh = box.y2 - box.y1;
-  const s = Math.min((bw - 2 * pad) / ((content.x2 - content.x1) * img.width), (bh - 2 * pad) / ((content.y2 - content.y1) * img.height)) * photoScale;
+  const s = Math.min((bw - 2 * pad) / ((content.x2 - content.x1) * img.width), (bh - 2 * pad) / ((content.y2 - content.y1) * img.height), MAX_CUT) * photoScale;
   const w = Math.round(img.width * s);
   const h = Math.round(img.height * s);
   return { x: Math.round((box.x1 + box.x2) / 2 - ((content.x1 + content.x2) / 2) * w), y: Math.round((box.y1 + box.y2) / 2 - ((content.y1 + content.y2) / 2) * h), w, h };
+}
+
+// The photo at its size on the slide, scaled here with Lanczos (and sharpened when it
+// grows) instead of GIMP's cubic, which turned small website photos into mush.
+async function crisp(file: string, frame: Fit, out: string): Promise<string> {
+  const { width = 1, height = 1, orientation } = await sharp(file).metadata();
+  const native = orientation && orientation >= 5 ? height : width;
+  let img = sharp(file).rotate().resize(frame.w, frame.h, { fit: 'fill', kernel: 'lanczos3' });
+  if (frame.w > native * 1.05) img = img.sharpen({ sigma: 0.7 });
+  await img.png().toFile(out);
+  return out;
 }
 
 // The director gave the middle slides one skeleton: real photos under the text
@@ -470,6 +487,11 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
   // A hard edge may crop a body, never a face; lively brands get it slanted.
   const faceKeep = photo && !photo.cutout && !photo.backdrop ? keepBox(input.faces) : undefined;
   const slant = system.personality === 'bold' || system.personality === 'friendly' || system.personality === 'modern' ? 96 : 0;
+  // A photo too small to fill the slide's width (or the whole slide, for the overlay) without
+  // pixelating goes in a window at its own size; a website banner too, whole and never veiled.
+  const needed = system.composition === 'overlay' ? Math.max(W / dims.width, H / dims.height) : Math.max(W / dims.width, 640 / dims.height);
+  const small = !!photo && !photo.cutout && !photo.backdrop && needed > MAX_UP;
+  const framed = !!photo && (photo.backdrop || small || system.composition === 'window');
 
   let textScale = 1;
   for (let attempt = 0; ; attempt++) {
@@ -518,7 +540,8 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
       textBand = 'top';
       y0 = topSafe;
       const foot = logo && !heroLogo && system.logoPosition === 'bottom_center' ? logoY - 24 : H;
-      const grounded = !!photo.grounded && foot === H;
+      // Only a person cut at the waist: a bike whose wheels touch its photo's edge stays whole.
+      const grounded = !!photo.grounded && !!photo.person && foot === H;
       region = { x1: 40, y1: y0 + total + 36, x2: W - 40, y2: grounded ? H : foot - 40 };
       fits = region.y2 - region.y1 >= (layout === 'cover' ? 620 : 560);
       frame = contain(dims, region, photo.content ?? FULL, 0, tweaks.photoScale ?? 1);
@@ -526,24 +549,15 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
       if (grounded) {
         // Already cut at the bottom, it can grow and bleed off the foot: the head stays
         // where the area starts, the body is cropped by the slide's edge like in an ad.
-        const grow = clamp((W * 0.78) / frame.w, 1, 1.6);
+        const grow = clamp((W * 0.78) / frame.w, 1, clamp((MAX_CUT * dims.width) / frame.w, 1, 1.6));
         const cx = frame.x + frame.w / 2;
         frame = { w: Math.round(frame.w * grow), h: Math.round(frame.h * grow), x: 0, y: region.y1 };
         frame.x = Math.round(cx - frame.w / 2);
       }
-    } else if (photo.backdrop) {
-      frame = cover(dims, input.focus);
-      // Only the stacked set keeps its text on top; the other compositions read at the bottom.
-      textBand = tweaks.band === 'top' || (banded && system.composition === 'stacked' && tweaks.band !== 'bottom') ? 'top' : 'bottom';
-      y0 = textBand === 'top' ? topSafe : bottomSafe - total;
-      fits = total <= H * 0.55;
-    } else if ((system.composition === 'split' || system.composition === 'cutout') && !photo.cutout && tweaks.band !== 'top') {
-      // A cutout composition lands here only where SAM couldn't cut the subject out.
-      edge();
-    } else if (system.composition === 'window') {
+    } else if (framed) {
       // Editorial: the photo in a window inside the margins and the text beside it,
-      // never over it. Where the subject can't be cropped the window narrows to the
-      // photo instead of filling the rest with a blur.
+      // never over it. Where the subject can't be cropped, or the photo is too small to
+      // grow, the window narrows to the photo instead of filling the rest with a blur.
       split = true;
       windowed = true;
       textBand = tweaks.band === 'top' ? 'top' : 'bottom';
@@ -554,10 +568,14 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
         frame = contain(dims, area, photo.content ?? FULL, 56, tweaks.photoScale ?? 1);
         card = area;
       } else {
-        frame = fitWhole(dims, area, keep, tweaks.photoScale ?? 1, 24);
+        // A banner is shown whole: its baked-in text is never cut.
+        frame = fitWhole(dims, area, photo.backdrop ? FULL : keep, tweaks.photoScale ?? 1, photo.backdrop ? 0 : 24, MAX_UP);
         card = { x1: Math.max(area.x1, frame.x), y1: Math.max(area.y1, frame.y), x2: Math.min(area.x2, frame.x + frame.w), y2: Math.min(area.y2, frame.y + frame.h) };
       }
       region = card;
+    } else if ((system.composition === 'split' || system.composition === 'cutout') && !photo.cutout && tweaks.band !== 'top') {
+      // A cutout composition lands here only where SAM couldn't cut the subject out.
+      edge();
     } else if (system.composition === 'photo_top' && tweaks.band !== 'top') {
       // The photo from the slide's top edge down, fading into the ground above the text
       // ("split", the text off the photo, is already this).
@@ -578,9 +596,9 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
       const top =
         tweaks.band === 'top' ||
         (tweaks.band !== 'bottom' && system.composition !== 'overlay' && ((banded && system.composition === 'stacked') || covers(band(true)) < covers(band(false))));
-      // The gradient reaches 220 px past the text: it can't darken a face either.
+      // The gradient reaches 170 px past the text (a shadow under it, not a veil over the photo): it can't darken a face either.
       const faces = (input.faces ?? []).map((f) => onSlide(f, full));
-      const gradientZone: Rect = top ? { x1: 0, y1: 0, x2: W, y2: topSafe + total + 220 } : { x1: 0, y1: bottomSafe - total - 220, x2: W, y2: H };
+      const gradientZone: Rect = top ? { x1: 0, y1: 0, x2: W, y2: topSafe + total + 170 } : { x1: 0, y1: bottomSafe - total - 170, x2: W, y2: H };
       const logoBox: Rect = { x1: W / 2 - 120 * logoScale - 22, y1: logoY - 14, x2: W / 2 + 120 * logoScale + 22, y2: logoY + logoH + 14 };
       const blocked = covers(band(top)) > 0.1 || faces.some((f) => overlap(f, gradientZone) > 0) || (!!logo && !!k && overlap(logoBox, k) > 0);
       split = !!photo.cutout || tweaks.band === 'split' || (tweaks.band !== 'top' && tweaks.band !== 'bottom' && (!whole || blocked));
@@ -628,7 +646,8 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
         const c = photo.content ?? FULL;
         frame = contain(dims, card, c, loose ? 24 : 56, tweaks.photoScale ?? 1);
         product = onSlide(c, frame);
-        code.push(`_p = _image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+        const sharpPhoto = await crisp(photo.path, frame, path.join(dir, `s${slide.n}-sized.png`));
+        code.push(`_p = _image('Photo', ${py(sharpPhoto)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
         if (!loose) code.push(`_round_mask(_p, ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${Math.max(1, R)})`);
         if (!photo.matte) {
           // A transparent cutout stands on the ground (or its light card) with a soft shadow.
@@ -652,22 +671,32 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
         visible = card;
       } else {
         // A real photo: covering the card with its subject whole; where it can't, the
-        // same photo blurred fills the card behind it.
-        frame = fitWhole(dims, card, keep, tweaks.photoScale ?? 1, 24);
-        code.push(`_p = _image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
-        code.push(`_round_mask(_p, ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${Math.max(1, R)})`);
+        // same photo blurred fills the card behind it. Too small to cover it, the card
+        // shrinks to the photo and the text follows it up.
+        frame = fitWhole(dims, card, keep, tweaks.photoScale ?? 1, 24, MAX_UP);
+        if (frame.w < cw && frame.h < ch) {
+          card = { x1: frame.x, y1: card.y1, x2: frame.x + frame.w, y2: card.y1 + frame.h };
+          frame.y = card.y1;
+          y0 = card.y2 + 56;
+        }
+        const cw2 = card.x2 - card.x1;
+        const ch2 = card.y2 - card.y1;
+        const sharpPhoto = await crisp(photo.path, frame, path.join(dir, `s${slide.n}-sized.png`));
+        code.push(`_p = _image('Photo', ${py(sharpPhoto)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+        code.push(`_round_mask(_p, ${card.x1}, ${card.y1}, ${cw2}, ${ch2}, ${Math.max(1, R)})`);
         if (frame.x > card.x1 || frame.y > card.y1 || frame.x + frame.w < card.x2 || frame.y + frame.h < card.y2) {
           const fill = path.join(dir, `s${slide.n}-cardfill.png`);
-          await sharp(photo.path).rotate().resize(cw, ch, { fit: 'cover' }).blur(30).modulate({ brightness: 0.75 }).png().toFile(fill);
-          code.push(`_c = _image('Card', ${py(fill)}, ${card.x1}, ${card.y1}, ${cw}, ${ch}, _bgpos())`);
-          code.push(`_round_mask(_c, ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${Math.max(1, R)})`);
+          await sharp(photo.path).rotate().resize(cw2, ch2, { fit: 'cover' }).blur(30).modulate({ brightness: 0.75 }).png().toFile(fill);
+          code.push(`_c = _image('Card', ${py(fill)}, ${card.x1}, ${card.y1}, ${cw2}, ${ch2}, _bgpos())`);
+          code.push(`_round_mask(_c, ${card.x1}, ${card.y1}, ${cw2}, ${ch2}, ${Math.max(1, R)})`);
         }
         visible = card;
       }
     } else if (photo && frame && windowed && card) {
       const cw = card.x2 - card.x1;
       const ch = card.y2 - card.y1;
-      code.push(`_p = _image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+      const sharpPhoto = await crisp(photo.path, frame, path.join(dir, `s${slide.n}-sized.png`));
+      code.push(`_p = _image('Photo', ${py(sharpPhoto)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
       code.push(`_round_mask(_p, ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${Math.max(1, R)})`);
       if (photo.cutout) {
         product = onSlide(photo.content ?? FULL, frame);
@@ -676,7 +705,8 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
       visible = card;
     } else if (photo && frame && cutPoster && region) {
       product = onSlide(photo.content ?? FULL, frame);
-      code.push(`_image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+      const sharpPhoto = await crisp(photo.path, frame, path.join(dir, `s${slide.n}-sized.png`));
+      code.push(`_image('Photo', ${py(sharpPhoto)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
       if (product.y2 < H) {
         const shade = path.join(dir, `s${slide.n}-shadow.png`);
         const sw = Math.round((product.x2 - product.x1) * 0.8);
@@ -684,7 +714,8 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
         code.push(`_image('Shadow', ${py(shade)}, ${Math.round((product.x1 + product.x2) / 2 - (sw + 120) / 2)}, ${product.y2 - 70}, ${sw + 120}, 120, _bgpos())`);
       }
       const circle = path.join(dir, `s${slide.n}-disc.png`);
-      await disc(circle, pal.accent, product, region.y1);
+      // A complementary accent mixed in turns grey: on a dark ground the disc is the ground, lighter.
+      await disc(circle, luminance(ground) > 0.5 ? mix(ground, pal.accent, 0.16) : mix(ground, '#ffffff', 0.14), product, region.y1);
       code.push(`_image('Disc', ${py(circle)}, 0, 0, ${W}, ${H}, _bgpos())`);
       visible = region;
     } else if (photo && frame && edged && region) {
@@ -717,7 +748,8 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
         const shade = path.join(dir, `s${slide.n}-shadow.png`);
         const sw = Math.round((product.x2 - product.x1) * 0.8);
         await shadow(shade, sw);
-        code.push(`_image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+        const sharpPhoto = await crisp(photo.path, frame, path.join(dir, `s${slide.n}-sized.png`));
+        code.push(`_image('Photo', ${py(sharpPhoto)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
         code.push(`_image('Shadow', ${py(shade)}, ${Math.round((product.x1 + product.x2) / 2 - (sw + 120) / 2)}, ${product.y2 - 70}, ${sw + 120}, 120, _bgpos())`);
         visible = region;
       }
@@ -736,10 +768,10 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
       }
     } else if (photo && frame) {
       const grad = path.join(dir, `s${slide.n}-gradient.png`);
-      await gradient(grad, ground, textBand === 'top' ? 'top' : 'bottom', textBand === 'top' ? Math.min(H, y0 + total + 220) : Math.max(0, y0 - 220));
+      await gradient(grad, ground, textBand === 'top' ? 'top' : 'bottom', textBand === 'top' ? Math.min(H, y0 + total + 170) : Math.max(0, y0 - 170));
       code.push(`_image('Gradient', ${py(grad)}, 0, 0, ${W}, ${H}, _bgpos())`);
-      if (photo.backdrop) code.push(`_shape('Shade', 0, 0, ${W}, ${H}, ${py(ground)}, 0, _bgpos(), 55)`);
-      code.push(`_image('Photo', ${py(photo.path)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
+      const sharpPhoto = await crisp(photo.path, frame, path.join(dir, `s${slide.n}-sized.png`));
+      code.push(`_image('Photo', ${py(sharpPhoto)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
       visible = { x1: 0, y1: 0, x2: W, y2: H };
     }
 
@@ -796,11 +828,6 @@ _bt.set_offsets(int(${x + w / 2} - _bt.get_width() / 2), ${p.y + 32})`);
           code.push(`_shape('Underline', ${left ? M : W / 2 - 60}, int(${p.y} + _get('Headline').get_height() + 22), 120, 10, ${py(pal.accent)}, ${Math.min(5, R)}, _below(_get('Headline')))`);
         }
       }
-    }
-
-    // The recurring frame device.
-    if (system.device === 'frame') {
-      code.push(`_fr = _layer('Frame')\n_img.select_rectangle(Gimp.ChannelOps.REPLACE, 36, 36, ${W - 72}, ${H - 72})\n_img.select_rectangle(Gimp.ChannelOps.SUBTRACT, 42, 42, ${W - 84}, ${H - 84})\nGimp.context_set_foreground(_color(${py(pal.accent)}))\n_fr.edit_fill(Gimp.FillType.FOREGROUND)\nGimp.Selection.none(_img)`);
     }
 
     // Logo: the same place on every slide; on a text-only call to action it is the hero.

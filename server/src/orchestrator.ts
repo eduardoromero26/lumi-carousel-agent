@@ -46,8 +46,8 @@ export async function runCarousel(run: Run): Promise<void> {
     // One visual system for every slide, with the brand fonts installed in GIMP.
     run.emit('status', 'designer', 'Setting the visual system of the carousel…');
     const system = await designSystem(run, plan, gimp);
-    // The pill label needs a label on every slide; without labels the device is the underline.
-    if (system.device === 'pill_label' && plan.slides.some((s) => !s.eyebrow)) system.device = 'underline';
+    // The pill is the cover's label; without one the device is the underline.
+    if (system.device === 'pill_label' && !plan.slides[0]?.eyebrow) system.device = 'underline';
     run.system = system;
     run.styleNotes = describeSystem(system);
 
@@ -190,6 +190,21 @@ async function prepareSlide(run: Run, slide: SlidePlan): Promise<Prepared> {
     // SAM 3.1 isolates the product: the slide uses the cutout from here on.
     const cut = await cutOut(run, photo, slide.subject || 'product').catch(() => undefined);
     run.emit('status', 'analyst', cut ? `SAM 3.1 cut the ${slide.subject || 'product'} out of its background.` : `SAM 3.1 could not find "${slide.subject}" to cut out; using the photo as it is.`, {
+      slide: slide.n,
+      data: cut ? { url: run.fileUrl(cut.path) } : undefined,
+    });
+    if (cut) {
+      slide.photo = cut.id;
+      photo = cut;
+    }
+  }
+  // A website banner only shows small in a window: what it shows (the product, the team)
+  // cut out of it can be the hero instead, when the cut is clean.
+  if (photo?.backdrop) {
+    const people = /\b(team|people|person|woman|man|staff|doctor)\b/i.test(`${slide.subject ?? ''} ${photo.note ?? ''}`);
+    const subject = people ? 'person' : slide.subject || 'product';
+    const cut = run.photos.find((p) => p.id === `${photo!.id}c`) ?? (await cutOut(run, photo, subject).catch(() => undefined));
+    run.emit('status', 'analyst', cut ? `SAM 3.1 cut the ${subject} out of the banner: it goes big instead of the banner.` : `The banner's ${subject} can't be cut out cleanly; the banner goes whole in a window.`, {
       slide: slide.n,
       data: cut ? { url: run.fileUrl(cut.path) } : undefined,
     });

@@ -80,7 +80,7 @@ export async function reviewSlide(
   if (photo?.backdrop) {
     parts.push({
       type: 'text',
-      text: 'The background is a website image with text baked in, softened and shaded on purpose ("original_photo" and "same_faces" are n/a). For "image": it must read as a background, with its own text never competing with the slide text. The image:',
+      text: 'The photo is a website image with text baked in (a banner or a screenshot), shown whole in a window on purpose ("original_photo" and "same_faces" are n/a). For "image": it is whole and sharp, and the slide text sits off it. The image:',
     });
     parts.push(imagePart(await thumbnail(photo.path), 'image/jpeg'));
   } else if (photo) {

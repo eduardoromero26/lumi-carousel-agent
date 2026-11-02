@@ -27,13 +27,14 @@ Rules:
   - "poster": big type only, at most one, never two in a row.
   - "cta": the last slide, always: what to do next, with a short "button" (2 to 4 words from the site, e.g. "Visit the store", "Book on WhatsApp"); its photo is optional.
 - "eyebrow": only on slide 1, optional: a short label above the hook, 1 to 3 words from the site ("New arrival", "Since 1917", the shop's category). Empty on every other slide. Never repeat it in the body.
+- "emphasis": the one or two words of the headline that carry it, copied exactly as they are in the headline ("Comfort", "sin intereses"); the template sets them in the brand's accent color. Empty when no word stands out. Never the whole headline.
 - "visual" is one short sentence about the mood, nothing else.
 - "subject" names, in one plain singular English noun ("baby", "doctor", "plate", "storefront"; not plurals or rare words), what must stay fully visible in the photo ("taco plate", "woman", "storefront"). A vision model finds it so the crop and the text never cut or cover it.
 - "cut_out": true when the product should be isolated from its photo's background (a product photographed in a room, on the street or on a busy background) so it can sit whole on a clean card like a catalog. Not needed for photos marked "cutout", and never for people, places or backdrops.
 - "focus" is your guess of where the subject is (0 to 1 from the top-left), used only if the vision model can't find it.
 
 Reply with JSON only:
-{"business_type": string, "format": "catalog"|"proof"|"benefits"|"how_it_works"|"offer", "concept": string, "why": string (why this carousel serves the goal), "slides": [{"n": number, "role": "hook"|"value"|"proof"|"cta", "photo": photo id or null, "headline": string, "body": string, "visual": string, "subject": string, "cut_out": boolean, "focus": {"x": number, "y": number}, "layout": "cover"|"product"|"hero"|"photo_band"|"poster"|"cta", "eyebrow": string, "button": string}], "caption": string, "hashtags": string[]}`;
+{"business_type": string, "format": "catalog"|"proof"|"benefits"|"how_it_works"|"offer", "concept": string, "why": string (why this carousel serves the goal), "slides": [{"n": number, "role": "hook"|"value"|"proof"|"cta", "photo": photo id or null, "headline": string, "body": string, "visual": string, "subject": string, "cut_out": boolean, "focus": {"x": number, "y": number}, "layout": "cover"|"product"|"hero"|"photo_band"|"poster"|"cta", "eyebrow": string, "emphasis": string, "button": string}], "caption": string, "hashtags": string[]}`;
 
 export const ANALYST = `You are the brand analyst of a social media agency. You receive the image assets found on a small business website and label each one so the team knows what it can use.
 

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import sharp from 'sharp';
 import { cutoutFlaw } from '../src/cutout.js';
 import { calmGround, contrast, normalizeSystem, paletteFor } from '../src/design.js';
+import { ghostWord, markEmphasis } from '../src/templates.js';
 
 test('a loud ground goes deep, or pastel when it is a light color', () => {
   // Hot pink, pure red: deep. Bright yellow, light pink: pastel.
@@ -49,4 +50,18 @@ test('a whole subject passes; one in pieces, or too small to be the hero, does n
   const tiny = path.join(dir, 'tiny.png');
   await sharp(whole).resize(500, 500).toFile(tiny);
   assert.match((await cutoutFlaw(tiny)) ?? '', /small/);
+});
+
+test('the emphasis takes the accent wherever the headline breaks it, and is escaped for the markup', () => {
+  assert.equal(markEmphasis('Crafted for Comfort.', 'comfort', '#c4561d'), 'Crafted for <span foreground="#c4561d">Comfort</span>.');
+  assert.equal(markEmphasis('Compra hoy\nsin intereses', 'hoy sin', '#123456'), 'Compra <span foreground="#123456">hoy\nsin</span> intereses');
+  assert.equal(markEmphasis('Pan & café <3', 'café', '#000000'), 'Pan &amp; <span foreground="#000000">café</span> &lt;3');
+  assert.equal(markEmphasis('Muebles a medida', 'sofás', '#000000'), undefined);
+  assert.equal(markEmphasis('Muebles a medida', undefined, '#000000'), undefined);
+});
+
+test('the word behind a cutout is the emphasis, else the longest word, and fits the slide', () => {
+  assert.equal(ghostWord({ headline: 'Tu próxima bici está aquí', emphasis: 'bici' }), 'BICI');
+  assert.equal(ghostWord({ headline: 'Tu próxima bici está aquí' }), 'PRÓXIMA');
+  assert.equal(ghostWord({ headline: 'Electrodomésticos', emphasis: undefined }), undefined);
 });

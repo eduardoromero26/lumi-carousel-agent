@@ -97,6 +97,8 @@ export type SlidePlan = {
   layout?: 'cover' | 'product' | 'hero' | 'photo_band' | 'poster' | 'cta';
   eyebrow?: string;
   button?: string;
+  // The word or two of the headline that carry it, set in the accent color.
+  emphasis?: string;
   // Where SAM found the subject: 0..1 of the photo, and in slide pixels for the current frame.
   subjectNorm?: { x1: number; y1: number; x2: number; y2: number };
   subjectBox?: { x1: number; y1: number; x2: number; y2: number };

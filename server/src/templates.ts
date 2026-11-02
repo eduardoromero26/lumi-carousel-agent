@@ -66,7 +66,7 @@ def _round_mask(_l, _x, _y, _w, _h, _radius):
 
 _J = Gimp.TextJustification.CENTER
 
-def _text(_name, _content, _font, _size, _hex, _maxw, _line=0.0, _spacing=0.0, _min=24):
+def _text(_name, _content, _font, _size, _hex, _maxw, _line=0.0, _spacing=0.0, _min=24, _markup=None):
     _f = Gimp.Font.get_by_name(_font)
     while True:
         _t = Gimp.TextLayer.new(_img, _content, _f, float(_size), Gimp.Unit.pixel())
@@ -75,6 +75,8 @@ def _text(_name, _content, _font, _size, _hex, _maxw, _line=0.0, _spacing=0.0, _
         _t.set_line_spacing(_line * _size)
         _t.set_letter_spacing(_spacing * _size)
         _t.set_color(_color(_hex))
+        if _markup:
+            _t.set_markup(_markup)
         if _t.get_width() <= _maxw or _size <= _min:
             break
         _img.remove_layer(_t)
@@ -120,6 +122,26 @@ export function balance(text: string, perLine: number, max = 3): string {
 }
 
 const py = (v: unknown) => JSON.stringify(v);
+
+const escapeMarkup = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+// The headline with its emphasis in another color, as Pango markup for the text layer:
+// found whatever its case or line break; undefined when the headline doesn't hold it.
+export function markEmphasis(text: string, emphasis: string | undefined, color: string): string | undefined {
+  const words = emphasis?.trim().split(/\s+/).filter(Boolean);
+  if (!words?.length) return undefined;
+  const found = new RegExp(words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+'), 'iu').exec(text);
+  if (!found) return undefined;
+  const at = found.index;
+  return `${escapeMarkup(text.slice(0, at))}<span foreground="${color}">${escapeMarkup(found[0])}</span>${escapeMarkup(text.slice(at + found[0].length))}`;
+}
+
+// The giant word behind a cutout: the emphasis or the headline's longest word, letters only.
+export function ghostWord(slide: Pick<SlidePlan, 'headline' | 'emphasis'>): string | undefined {
+  const pick = (text: string) => text.split(/\s+/).map((w) => w.replace(/[^\p{L}\p{N}]/gu, '')).sort((a, b) => b.length - a.length)[0] ?? '';
+  const word = (slide.emphasis ? pick(slide.emphasis) : '') || pick(slide.headline);
+  return word.length >= 3 && word.length <= 12 ? word.toUpperCase() : undefined;
+}
 
 async function gradient(file: string, color: string, from: 'bottom' | 'top', start: number): Promise<void> {
   const [y1, y2] = from === 'bottom' ? [start / H, 1] : [start / H, 0];
@@ -713,10 +735,21 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
         await shadow(shade, sw);
         code.push(`_image('Shadow', ${py(shade)}, ${Math.round((product.x1 + product.x2) / 2 - (sw + 120) / 2)}, ${product.y2 - 70}, ${sw + 120}, 120, _bgpos())`);
       }
-      const circle = path.join(dir, `s${slide.n}-disc.png`);
-      // A complementary accent mixed in turns grey: on a dark ground the disc is the ground, lighter.
-      await disc(circle, luminance(ground) > 0.5 ? mix(ground, pal.accent, 0.16) : mix(ground, '#ffffff', 0.14), product, region.y1);
-      code.push(`_image('Disc', ${py(circle)}, 0, 0, ${W}, ${H}, _bgpos())`);
+      // A complementary accent mixed in turns grey: on a dark ground the tone is the ground, lighter.
+      const tone = luminance(ground) > 0.5 ? mix(ground, pal.accent, 0.2) : mix(ground, '#ffffff', 0.15);
+      const word = ghostWord(slide);
+      if (word) {
+        // Depth: a giant word in the ground's own tone behind the subject, as wide as the slide.
+        const size = Math.round(Math.min(420, (W - 60) / (word.length * 0.62)));
+        const cy = Math.round(product.y1 + (Math.min(product.y2, H) - product.y1) * 0.3);
+        code.push(`_g = _text('Ghost', ${py(word)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${size}, ${py(tone)}, ${W - 40}, -0.1, -0.02, 120)
+_img.reorder_item(_g, None, _bgpos() - 1)
+_g.set_offsets(int(${W / 2} - _g.get_width() / 2), max(${region.y1}, int(${cy} - _g.get_height() / 2)))`);
+      } else {
+        const circle = path.join(dir, `s${slide.n}-disc.png`);
+        await disc(circle, tone, product, region.y1);
+        code.push(`_image('Disc', ${py(circle)}, 0, 0, ${W}, ${H}, _bgpos())`);
+      }
       visible = region;
     } else if (photo && frame && edged && region) {
       const file = path.join(dir, `s${slide.n}-photo.png`);
@@ -910,7 +943,10 @@ async function measure(gimp: Gimp, input: SlideInput, layout: Layout, scale: num
     add('Eyebrow', `_text('Eyebrow', ${py(slide.eyebrow.trim().toUpperCase())}, ${py(bodyBold)}, ${Math.round(30 * Math.max(0.85, scale))}, ${py(pill ? pal.accentInk : accentText)}, ${TEXT_W - 80}, 0.0, 0.12)`);
     kinds.push({ kind: 'eyebrow', name: 'Eyebrow', top: kinds.length ? 6 : 0 });
   }
-  add('Headline', `_text('Headline', ${py(balance(headline, perLine(head), 3))}, ${py(headingFont)}, ${head}, ${py(pal.ink)}, ${TEXT_W}, -0.18, ${system.tracking}, 44)`);
+  const lines = balance(headline, perLine(head), 3);
+  // The words that carry the headline in the accent, when it reads as large text on the ground.
+  const markup = accentText !== pal.ink ? markEmphasis(lines, slide.emphasis, accentText) : undefined;
+  add('Headline', `_text('Headline', ${py(lines)}, ${py(headingFont)}, ${head}, ${py(pal.ink)}, ${TEXT_W}, -0.18, ${system.tracking}, 44, ${markup ? py(markup) : 'None'})`);
   kinds.push({ kind: 'headline', name: 'Headline', top: pill ? 26 : 18 });
   if (slide.body?.trim()) {
     add('Body', `_text('Body', ${py(balance(slide.body.trim(), perLine(body), 3))}, ${py(bodyFont)}, ${body}, ${py(pal.ink)}, ${TEXT_W - 40}, 0.05, 0.0, 26)\n_t.set_opacity(90)`);

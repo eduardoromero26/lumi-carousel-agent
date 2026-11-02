@@ -58,6 +58,9 @@ function fixLayouts(run: Run, plan: Plan): void {
     else if (i === plan.slides.length - 1) s.layout = 'cta';
     else if (s.layout === 'cover' || s.layout === 'cta') s.layout = photo ? (product ? 'product' : 'photo_band') : 'poster';
     if (s.eyebrow && s.eyebrow.split(/\s+/).length > 4) s.eyebrow = undefined;
+    // The emphasis is part of the headline, never all of it.
+    const emphasis = s.emphasis?.trim();
+    s.emphasis = emphasis && emphasis.split(/\s+/).length <= 3 && emphasis.length < s.headline.trim().length && s.headline.toLowerCase().includes(emphasis.toLowerCase()) ? emphasis : undefined;
   });
   // A product cut by its own photo's edge can't be a hero: an unused whole photo takes its place.
   const used = new Set(plan.slides.map((s) => s.photo).filter(Boolean));

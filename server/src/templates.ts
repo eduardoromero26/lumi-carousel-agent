@@ -808,6 +808,22 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), max(${region.y1}, int(${cy} -
       visible = { x1: 0, y1: 0, x2: W, y2: H };
     }
 
+    // A slide of type alone: its word repeated in rows, tone on tone, fills the ground the
+    // way current posters do (the critic and the owner read an empty ground as unfinished).
+    if (!photo) {
+      const word = ghostWord(slide);
+      if (word) {
+        const size = clamp(Math.round((W * 0.85) / (word.length * 0.62)), 150, 260);
+        const rows = Math.ceil(H / (size * 0.82)) + 1;
+        const wall = Array.from({ length: rows }, (_, i) => Array(i % 2 ? 4 : 3).fill(word).join(' ')).join('\n');
+        const tone = luminance(ground) > 0.5 ? mix(ground, ink, 0.07) : mix(ground, '#ffffff', 0.08);
+        code.push(`_w = _text('Pattern', ${py(wall)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${size}, ${py(tone)}, 99999, -0.18, -0.02, 40)
+_w.set_justification(Gimp.TextJustification.CENTER)
+_img.reorder_item(_w, None, _bgpos() - 1)
+_w.set_offsets(int(${W / 2} - _w.get_width() / 2), int(${H / 2} - _w.get_height() / 2))`);
+      }
+    }
+
     // The text block, placed first so the decor can keep clear of it.
     let y = y0;
     parts.forEach((p, i) => {

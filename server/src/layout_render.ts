@@ -5,7 +5,7 @@ import { SLIDE } from './config.js';
 import { contrast, luminance, readableOn, type DesignSystem } from './design.js';
 import type { Gimp } from './gimp.js';
 import { mirrorLayout, type BlockRole, type Box, type LayoutBlock, type RefLayout } from './layout.js';
-import { LIB, MAX_UP, crisp, keepBox, mix, onSlide, pickLogo, readable, type Built, type Fit, type Rect, type SlideInput } from './templates.js';
+import { LIB, MAX_UP, crisp, frostedPanel, keepBox, mix, onSlide, pickLogo, readable, type Built, type Fit, type Rect, type SlideInput } from './templates.js';
 
 // A slide built from the owner's reference plan (layout.ts) instead of a template: the
 // photo full-bleed with its subject where the reference has it, every text block in the
@@ -189,7 +189,7 @@ export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLa
     );
   };
   let alpha = 0;
-  if (area && slidePhoto) {
+  if (area && slidePhoto && !layout.elements.some((e) => e.type === 'panel')) {
     for (const a of [layout.scrim === 'none' ? 0 : 0.3, 0.45, 0.6, 0.75, 0.88]) {
       alpha = a;
       const shaded = a ? await sharp(slidePhoto).composite([{ input: scrimSvg(a) }]).png().toBuffer() : slidePhoto;
@@ -217,8 +217,17 @@ _get('Background').edit_fill(Gimp.FillType.BACKGROUND)`);
   // In reading order, top to bottom: a block longer than the reference's pushes what follows
   // down, keeping at least the reference's gap.
   type Item = { y: number; block?: LayoutBlock; element?: (typeof layout.elements)[number]; i: number };
+  // A card the text sits on: the photo blurred behind it, in the ground the text was made for.
+  const panel = layout.elements.find((e) => e.type === 'panel');
+  if (panel && frame && photo) {
+    const r = px(panel.box);
+    const file = path.join(dir, `s${slide.n}-panel.png`);
+    await frostedPanel(photo.path, frame, r, light ? shade : mix(system.base, '#ffffff', 0.85), ink, Math.round(Math.min(r.x2 - r.x1, r.y2 - r.y1) * 0.08), file);
+    code.push(`_image('Panel', ${py(file)}, ${r.x1}, ${r.y1}, ${r.x2 - r.x1}, ${r.y2 - r.y1}, 0)`);
+    order.push('Panel');
+  }
   // The arrow says "swipe": the call to action's button says what to do instead.
-  const elements = layout.elements.filter((e) => !(texts.cta && e.type === 'arrow_circle'));
+  const elements = layout.elements.filter((e) => e.type !== 'panel' && !(texts.cta && e.type === 'arrow_circle'));
   const items: Item[] = [...blocks.map((block, i) => ({ y: block.box.y1, block, i })), ...elements.map((element, i) => ({ y: element.box.y1, element, i }))].sort((a, b) => a.y - b.y);
   code.push('_push = 0\n_prev = 0');
   const flow = (top: number, height: string) => `_y = ${top} + _push
@@ -235,7 +244,8 @@ _prev = _y + ${height}`;
       const title = b.role === 'title';
       // A title fills its box's height and shrinks to its width; the rest wrap in its width,
       // taller than the reference's when the words are longer.
-      const size = title ? Math.round((r.y2 - r.y1) / 0.72) : START[b.role];
+      // The headline starts from the reference's own size (its box's height), never below the default.
+      const size = title ? Math.round((r.y2 - r.y1) / 0.72) : b.role === 'headline' ? clamp(Math.round((r.y2 - r.y1) * 0.75), START.headline, 110) : START[b.role];
       const maxh = title ? H : Math.max((r.y2 - r.y1) * 2.2, b.role === 'headline' || b.role === 'body' ? 240 : 60);
       const emphasis = b.role === 'headline' || b.role === 'body' ? slide.emphasis : undefined;
       code.push(
@@ -295,12 +305,14 @@ Gimp.Selection.none(_img)`);
   if (logo) {
     const sig = layout.blocks.find((b) => b.role === 'signature');
     const head = layout.blocks.find((b) => b.role === 'headline') ?? layout.blocks[0];
-    const at = sig ? px(sig.box) : { x1: px(head.box).x1, y1: H - 140, x2: px(head.box).x2, y2: H - 70 };
-    const boxH = clamp(Math.round((at.y2 - at.y1) * 1.8), 44, 72);
-    const s = Math.min(240 / logo.asset.width, boxH / logo.asset.height);
+    // On a card without a signature line, the logo signs the card: big, in its lower third.
+    const card = !sig && panel && frame ? px(panel.box) : undefined;
+    const at = sig ? px(sig.box) : card ? { x1: card.x1, y1: Math.round(card.y2 - (card.y2 - card.y1) * 0.36), x2: card.x2, y2: card.y2 - 40 } : { x1: px(head.box).x1, y1: H - 140, x2: px(head.box).x2, y2: H - 70 };
+    const boxH = card ? Math.round((at.y2 - at.y1) * 0.8) : clamp(Math.round((at.y2 - at.y1) * 1.8), 44, 72);
+    const s = Math.min((card ? (card.x2 - card.x1) * 0.45 : 240) / logo.asset.width, boxH / logo.asset.height);
     const w = Math.round(logo.asset.width * s);
     const h = Math.round(logo.asset.height * s);
-    const align = (sig ?? head).align;
+    const align = card ? 'center' : (sig ?? head).align;
     const x = align === 'left' ? at.x1 : align === 'right' ? at.x2 - w : Math.round((at.x1 + at.x2) / 2 - w / 2);
     const y = Math.min(H - 44 - h, at.y1);
     if (logo.pill) code.push(`_shape('Logo plate', ${x - 18}, ${y - 12}, ${w + 36}, ${h + 24}, ${py(logo.pill)}, ${Math.round((h + 24) / 2)}, 0)`);

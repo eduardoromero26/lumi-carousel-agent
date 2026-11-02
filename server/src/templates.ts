@@ -335,7 +335,7 @@ async function edgePhoto(file: string, frame: Fit, bottom: number, slant: number
 
 // The photo under `box` blurred, with the ground over it as opaque as the text needs,
 // rounded: a frosted panel the text sits on.
-async function frostedPanel(file: string, frame: Fit, box: Rect, color: string, ink: string, radius: number, out: string): Promise<void> {
+export async function frostedPanel(file: string, frame: Fit, box: Rect, color: string, ink: string, radius: number, out: string): Promise<void> {
   const width = box.x2 - box.x1;
   const height = box.y2 - box.y1;
   const left = clamp(box.x1 - frame.x, 0, frame.w - width);

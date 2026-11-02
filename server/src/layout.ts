@@ -21,7 +21,7 @@ export type LayoutBlock = {
   emphasis: 'bold' | 'color' | 'none';
 };
 
-export const ELEMENT_TYPES = ['line', 'arrow_circle', 'circle', 'pill', 'frame'] as const;
+export const ELEMENT_TYPES = ['line', 'arrow_circle', 'circle', 'pill', 'frame', 'panel'] as const;
 export type LayoutElement = { type: (typeof ELEMENT_TYPES)[number]; box: Box };
 
 export type RefLayout = {

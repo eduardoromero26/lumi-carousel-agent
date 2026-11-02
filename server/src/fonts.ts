@@ -45,9 +45,10 @@ export async function installFont(gimp: Gimp, family: string, weights: number[])
     await writeFile(file, Buffer.from(await res.arrayBuffer()));
     added = true;
   }
+  // Its own call: listing the fonts in the same call as the refresh left GIMP blocked for good.
+  if (added) await gimp.python(['Gimp.fonts_refresh()', '_result = 1'].join('\n'));
   const names = (await gimp.python(
     [
-      added ? 'Gimp.fonts_refresh()' : '',
       `_raw = Gimp.fonts_get_list(${JSON.stringify(family)})`,
       '_list = list(_raw[1]) if isinstance(_raw, tuple) and len(_raw) > 1 else list(_raw)',
       '_result = [_f.get_name() for _f in _list]',

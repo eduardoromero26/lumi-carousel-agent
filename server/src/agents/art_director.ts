@@ -123,13 +123,16 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
 // they are of that kind, else a classic one. A family that fails stays out.
 const SERIF = /serif|garamond|bodoni|caslon|playfair|fraunces|lora|merriweather|baskerville|cormorant|marcellus|cardo|bitter|alegreya|cinzel|prata|spectral|crimson|libre|domine|vollkorn|zilla|young/i;
 async function layoutFonts(gimp: Gimp, system: DesignSystem): Promise<NonNullable<DesignSystem['layoutFonts']>> {
+  const blocks = system.layout?.blocks ?? [];
+  // Only the weights the plan uses (every download refreshes GIMP's fonts); 400 is the fallback.
+  const weights = (font: 'serif' | 'sans') => [...new Set([400, ...blocks.filter((b) => b.font === font).map((b) => ({ light: 300, regular: 400, bold: 700 })[b.weight]), ...(blocks.some((b) => b.font === font && b.emphasis === 'bold') ? [700] : [])])];
+  const install = (family: string, font: 'serif' | 'sans') => installFont(gimp, family, weights(font)).catch(() => ({}) as Record<number, string>);
   const serif = SERIF.test(system.headingFont) ? system.headingFont : SERIF.test(system.bodyFont) ? system.bodyFont : 'Cormorant Garamond';
   const sans = !SERIF.test(system.bodyFont) ? system.bodyFont : !SERIF.test(system.headingFont) ? system.headingFont : 'Montserrat';
-  const install = (family: string) => installFont(gimp, family, [300, 400, 700]).catch(() => ({}) as Record<number, string>);
-  let serifSet = await install(serif);
+  let serifSet = blocks.some((b) => b.font === 'serif') ? await install(serif, 'serif') : {};
   // A light serif title needs a family that has a light weight.
-  if (!serifSet[300] && system.layout?.blocks.some((b) => b.font === 'serif' && b.weight === 'light')) serifSet = await install('Cormorant Garamond');
-  return { serif: serifSet, sans: await install(sans) };
+  if (!serifSet[300] && blocks.some((b) => b.font === 'serif' && b.weight === 'light')) serifSet = await install('Cormorant Garamond', 'serif');
+  return { serif: serifSet, sans: blocks.some((b) => b.font === 'sans') ? await install(sans, 'sans') : {} };
 }
 
 // The decor kit, once for every slide: the brand's own liked piece first, then one the

@@ -1,4 +1,4 @@
-import { COMPOSITIONS, luminance, type DesignSystem } from './design.js';
+import { COMPOSITIONS, type DesignSystem } from './design.js';
 import { sampleChoice, votesOn, type Stat } from './taste.js';
 import type { Run } from './run.js';
 
@@ -205,12 +205,6 @@ export function freshen(system: DesignSystem, siteFonts: string[], recent: Look[
     const composition = pick('composition', COMPOSITIONS.filter((c) => c !== system.composition && c !== 'overlay' && !previous.includes(c)), laidOut);
     changes.push(`composition ${system.composition} → ${composition}`);
     system.composition = composition;
-  }
-  // Text over a full-bleed photo needs a dark shadow under it: on a light base the gradient
-  // becomes a pale veil over the photo, so the photo goes in a window instead.
-  if (system.composition === 'overlay' && luminance(system.base) > 0.3) {
-    changes.push('composition overlay → window (a light base would veil the photo)');
-    system.composition = 'window';
   }
   const blocks = (c: string) => last.filter((l) => l.colorSlides === c).length;
   if (most(blocks(system.colorSlides))) {

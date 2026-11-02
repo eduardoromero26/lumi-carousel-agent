@@ -200,8 +200,6 @@ export function applyReference(system: DesignSystem, plan: Plan, ref: Reference)
     system.decor = undefined;
   }
   if (!s.emphasis) for (const slide of plan.slides) slide.emphasis = undefined;
-  // The overlay needs a dark ground under its text (variety.ts): on a light one, a window.
-  if (system.composition === 'overlay' && luminance(system.base) > 0.3) set('composition', 'window', 'composition');
   changes.push(...placeLogo(system));
   return changes;
 }

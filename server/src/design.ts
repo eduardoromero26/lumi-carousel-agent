@@ -240,7 +240,7 @@ const COMPOSITION_NOTES: Record<Composition, string> = {
   stacked: 'Photo slides: the text on the ground at the top, the photo below it fading into the ground.',
   photo_top: 'Photo slides: the photo full-width at the top fading into the ground, the text below it, the logo at the foot.',
   window: 'Photo slides: the photo in a window inside the margins, on the ground, with the text beside it, never over it.',
-  overlay: 'Photo slides: the photo full-bleed with the text over a short dark gradient at its quietest edge (a shadow under the text, never a colored veil over the photo).',
+  overlay: 'Photo slides: the photo full-bleed with the text at its quietest edge: over a short dark gradient on a dark ground, on a frosted rounded panel of the ground (the photo blurred behind it) on a light one; never a colored veil over the whole photo.',
   cutout: 'Photo slides: the person or product cut out of its photo, big, standing at the foot of the slide on a solid color block with a big accent circle behind it; the text on the ground above it (on purpose: no photo rectangle, no fade).',
   split: 'Photo slides: the photo full-width at the top with a hard edge (slanted for lively brands) and a thin accent stripe along it, the text on the solid ground below; the photo may crop a body, never a face (on purpose: no fade).',
 };

@@ -332,6 +332,24 @@ async function edgePhoto(file: string, frame: Fit, bottom: number, slant: number
   return { ...vis, y2: Math.min(vis.y2, bottom - slant) };
 }
 
+// The photo under `box` blurred, with the ground over it as opaque as the text needs,
+// rounded: a frosted panel the text sits on.
+async function frostedPanel(file: string, frame: Fit, box: Rect, color: string, ink: string, radius: number, out: string): Promise<void> {
+  const width = box.x2 - box.x1;
+  const height = box.y2 - box.y1;
+  const left = clamp(box.x1 - frame.x, 0, frame.w - width);
+  const top = clamp(box.y1 - frame.y, 0, frame.h - height);
+  const behind = await sharp(file).rotate().resize(frame.w, frame.h, { fit: 'fill' }).extract({ left, top, width, height }).blur(24).png().toBuffer();
+  let panel = behind;
+  for (const opacity of [0.72, 0.82, 0.9, 0.96]) {
+    const veil = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" fill="${color}" fill-opacity="${opacity}"/></svg>`);
+    panel = await sharp(behind).composite([{ input: veil }]).png().toBuffer();
+    if (await readable(panel, ink)) break;
+  }
+  const shape = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="${width}" height="${height}" rx="${radius}" ry="${radius}" fill="#000"/></svg>`);
+  await sharp(panel).ensureAlpha().composite([{ input: shape, blend: 'dest-in' }]).png().toFile(out);
+}
+
 // A big circle behind a cutout, tone on tone with the ground (a full accent disc
 // behind every product shouted), kept off the text above it.
 async function disc(file: string, color: string, product: Rect, top: number): Promise<void> {
@@ -508,6 +526,9 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
   const keep = photo && !photo.cutout && !photo.backdrop ? keepBox(input.avoid) : undefined;
   // A hard edge may crop a body, never a face; lively brands get it slanted.
   const faceKeep = photo && !photo.cutout && !photo.backdrop ? keepBox(input.faces) : undefined;
+  // A subject as wide as the photo is a scene (a set table, a terrace): a full-bleed overlay may
+  // crop its sides like any ad does; only the faces must stay whole.
+  const kept = system.composition === 'overlay' && !!keep && keep.x2 - keep.x1 > 0.7 ? faceKeep : keep;
   const slant = system.personality === 'bold' || system.personality === 'friendly' || system.personality === 'modern' ? 96 : 0;
   // A photo too small to fill the slide's width (or the whole slide, for the overlay) without
   // pixelating goes in a window at its own size; a website banner too, whole and never veiled.
@@ -609,7 +630,7 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
       frame = photo.cutout ? contain(dims, { ...region, y1: 60 }, photo.content ?? FULL, 56, tweaks.photoScale ?? 1) : fitWhole(dims, region, keep, tweaks.photoScale ?? 1);
     } else {
       const full = cover(dims, input.focus);
-      const k = keep ? onSlide(keep, full) : undefined;
+      const k = kept ? onSlide(kept, full) : undefined;
       // Whole means inside the slide, unless the photo itself ends there.
       const whole = !k || ((k.x1 >= 12 || k.x1 <= full.x) && (k.y1 >= 12 || k.y1 <= full.y) && (k.x2 <= W - 12 || k.x2 >= full.x + full.w) && (k.y2 <= H - 12 || k.y2 >= full.y + full.h));
       const band = (top: boolean): Rect => (top ? { x1: M, y1: topSafe, x2: W - M, y2: topSafe + total } : { x1: M, y1: bottomSafe - total, x2: W - M, y2: bottomSafe });
@@ -617,10 +638,12 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
       // The stacked set keeps its text on top; the overlay always at the bottom.
       const top =
         tweaks.band === 'top' ||
-        (tweaks.band !== 'bottom' && system.composition !== 'overlay' && ((banded && system.composition === 'stacked') || covers(band(true)) < covers(band(false))));
+        // A dark overlay reads at the bottom; a light one's panel goes where it covers the subject least.
+        (tweaks.band !== 'bottom' && (system.composition !== 'overlay' || luminance(ground) > 0.5) && ((banded && system.composition === 'stacked') || covers(band(true)) < covers(band(false))));
       // The gradient reaches 170 px past the text (a shadow under it, not a veil over the photo): it can't darken a face either.
       const faces = (input.faces ?? []).map((f) => onSlide(f, full));
-      const gradientZone: Rect = top ? { x1: 0, y1: 0, x2: W, y2: topSafe + total + 170 } : { x1: 0, y1: bottomSafe - total - 170, x2: W, y2: H };
+      const reach = system.composition === 'overlay' && luminance(ground) > 0.5 ? 56 : 170;
+      const gradientZone: Rect = top ? { x1: 0, y1: 0, x2: W, y2: topSafe + total + reach } : { x1: 0, y1: bottomSafe - total - reach, x2: W, y2: H };
       const logoBox: Rect = { x1: W / 2 - 120 * logoScale - 22, y1: logoY - 14, x2: W / 2 + 120 * logoScale + 22, y2: logoY + logoH + 14 };
       const blocked = covers(band(top)) > 0.1 || faces.some((f) => overlap(f, gradientZone) > 0) || (!!logo && !!k && overlap(logoBox, k) > 0);
       split = !!photo.cutout || tweaks.band === 'split' || (tweaks.band !== 'top' && tweaks.band !== 'bottom' && (!whole || blocked));
@@ -802,9 +825,25 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), max(${region.y1}, int(${cy} -
         code.push(`_image('Photo fill', ${py(fill)}, ${vis.x1}, ${vis.y1}, ${vis.x2 - vis.x1}, ${vis.y2 - vis.y1}, _bgpos())`);
       }
     } else if (photo && frame) {
-      const grad = path.join(dir, `s${slide.n}-gradient.png`);
-      await gradient(grad, ground, textBand === 'top' ? 'top' : 'bottom', textBand === 'top' ? Math.min(H, y0 + total + 170) : Math.max(0, y0 - 170));
-      code.push(`_image('Gradient', ${py(grad)}, 0, 0, ${W}, ${H}, _bgpos())`);
+      if (luminance(ground) > 0.5) {
+        // A light brand over a full-bleed photo: the text on a frosted panel of its ground,
+        // the photo blurred behind it (a light gradient was a pale veil over the photo).
+        const tw = Math.max(...parts.map((p) => (p.kind === 'button' ? Math.min(TEXT_W, p.w + 120) : p.kind === 'eyebrow' && pill ? p.w + 56 : p.w)));
+        const padX = left ? 40 : 64;
+        const pw = Math.min(W - 80, tw + 2 * padX);
+        const box: Rect = { x1: left ? 40 : Math.round(W / 2 - pw / 2), y1: Math.max(24, y0 - 56), x2: 0, y2: Math.min(H - 24, y0 + total + 56) };
+        box.x2 = box.x1 + pw;
+        // The logo on the panel's side sits inside it, as in a signed card.
+        if (logo && !heroLogo && textBand === 'bottom' && system.logoPosition === 'bottom_center') box.y2 = Math.min(H - 24, logoY + logoH + 28);
+        if (logo && !heroLogo && textBand === 'top' && system.logoPosition === 'top_center') box.y1 = Math.max(24, logoY - 28);
+        const file = path.join(dir, `s${slide.n}-panel.png`);
+        await frostedPanel(photo.path, frame, box, ground, ink, Math.max(28, R), file);
+        code.push(`_image('Panel', ${py(file)}, ${box.x1}, ${box.y1}, ${box.x2 - box.x1}, ${box.y2 - box.y1}, _bgpos())`);
+      } else {
+        const grad = path.join(dir, `s${slide.n}-gradient.png`);
+        await gradient(grad, ground, textBand === 'top' ? 'top' : 'bottom', textBand === 'top' ? Math.min(H, y0 + total + 170) : Math.max(0, y0 - 170));
+        code.push(`_image('Gradient', ${py(grad)}, 0, 0, ${W}, ${H}, _bgpos())`);
+      }
       const sharpPhoto = await crisp(photo.path, frame, path.join(dir, `s${slide.n}-sized.png`));
       code.push(`_image('Photo', ${py(sharpPhoto)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, _bgpos())`);
       visible = { x1: 0, y1: 0, x2: W, y2: H };
@@ -917,7 +956,9 @@ _bt.set_offsets(int(${x + w / 2} - _bt.get_width() / 2), ${p.y + 32})`);
           : undefined
         : cutPoster && product
           ? { ...product, y2: Math.min(product.y2, H) }
-          : keep && frame ? onSlide(keep, frame) : !card ? product : undefined,
+          : kept !== keep && frame && !split
+            ? kept && onSlide(kept, frame)
+            : keep && frame ? onSlide(keep, frame) : !card ? product : undefined,
       visible,
       text,
       decor,

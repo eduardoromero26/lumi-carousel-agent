@@ -684,8 +684,10 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
           // A giant ghost word behind the product: the label, or the headline's longest word.
           const word = (slide.eyebrow?.trim() || [...slide.headline.split(/\s+/)].sort((a, b) => b.length - a.length)[0] || '').toUpperCase();
           const size = Math.round(Math.min(380, 1240 / (Math.max(1, word.length) * 0.6)));
-          code.push(`_g = _text('Ghost', ${py(word)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${size}, ${py(system.accent)}, 99999, -0.1, -0.02, 40)`);
-          code.push(`_g.set_opacity(22)
+          // Tone on tone with the ground, like the word behind a cutout: the pure accent shouted.
+          const tone = luminance(ground) > 0.5 ? mix(ground, pal.accent, 0.2) : mix(ground, '#ffffff', 0.15);
+          code.push(`_g = _text('Ghost', ${py(word)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${size}, ${py(tone)}, 99999, -0.1, -0.02, 40)`);
+          code.push(`_g.set_opacity(100)
 _img.reorder_item(_g, None, _bgpos() - 1)
 _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2} - _g.get_height() / 2))`);
         }

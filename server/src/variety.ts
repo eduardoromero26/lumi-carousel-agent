@@ -232,17 +232,23 @@ export function freshen(system: DesignSystem, siteFonts: string[], recent: Look[
     changes.push(`logo ${system.logoPosition.replace('_', ' ')} → ${other.replace('_', ' ')}`);
     system.logoPosition = other;
   }
+  changes.push(...placeLogo(system));
+  return changes;
+}
+
+// Where the composition leaves room for the logo.
+export function placeLogo(system: DesignSystem): string[] {
   // The photo takes the top edge: the logo goes to the foot.
   if ((system.composition === 'photo_top' || system.composition === 'overlay' || system.composition === 'split') && system.logoPosition !== 'bottom_center') {
-    changes.push('logo at the foot, under the text (the photo takes the top)');
     system.logoPosition = 'bottom_center';
+    return ['logo at the foot, under the text (the photo takes the top)'];
   }
   // The cutout stands on the foot: the logo goes to the top.
   if (system.composition === 'cutout' && system.logoPosition !== 'top_center') {
-    changes.push('logo at the top (the cutout stands on the foot of the slide)');
     system.logoPosition = 'top_center';
+    return ['logo at the top (the cutout stands on the foot of the slide)'];
   }
-  return changes;
+  return [];
 }
 
 export const HOOKS = ['photo_wall', 'photo_full', 'marquee'] as const;

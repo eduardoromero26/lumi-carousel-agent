@@ -131,6 +131,19 @@ class _PostCardState extends State<PostCard> {
   bool more = false;
   late Map<String, int> votes = ((widget.post['votes'] as Map?) ?? {}).cast<String, int>();
   late int? stars = widget.post['stars'] as int?;
+  bool styled = false;
+
+  // A 5-star carousel can become a style in the gallery Create starts from.
+  Future<void> addToGallery() async {
+    try {
+      await Api.referenceFromRun(widget.post['id'] as String);
+      if (!mounted) return;
+      setState(() => styled = true);
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Added to the style gallery in Create.')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+    }
+  }
 
   // Tapping the same thumb again takes the vote back. A dislike asks what's wrong: the
   // critic learns from those words what it let through.
@@ -285,7 +298,11 @@ class _PostCardState extends State<PostCard> {
                   onSelectionChanged: (v) => setState(() => reel = v.first),
                 ),
               ),
-            const IconButton(onPressed: null, icon: Icon(Icons.bookmark_border)),
+            IconButton(
+              tooltip: stars == 5 ? 'Add to the style gallery' : 'Rate it 5 ★ to add it to the style gallery',
+              onPressed: stars == 5 && !styled ? addToGallery : null,
+              icon: Icon(styled ? Icons.bookmark : Icons.bookmark_border),
+            ),
           ]),
         ),
         Padding(

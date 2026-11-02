@@ -197,6 +197,22 @@ Prompts in English, concrete and visual. At most one texture and one element.
 
 Reply with JSON only: {"personality": string, "composition": string, "colorSlides": string, "typeScale": string, "numbers": boolean, "headingFont": string, "headingWeight": number, "bodyFont": string, "bodyWeight": number, "base": "#rrggbb", "ink": "#rrggbb", "accent": "#rrggbb", "accentInk": "#rrggbb", "device": string, "logoPosition": string, "headlineCase": string, "swipeLabel": string, "align": string, "radius": number, "products": string, "ground": string, "ground2": "#rrggbb", "grain": boolean, "tracking": number, "button": string, "siteNotes": string, "notes": string (one sentence: the idea of the system), "decor": {"texture": string, "blend": string, "strength": number, "element": string, "glow": boolean, "idea": string, "reuseTexture": string (optional: a liked library id), "reuseElement": string (optional: a liked library id)}}`;
 
+export const REFERENCE_READER = `You are the art director of a social media agency. The owner gives you a design they like (an ad or a carousel slide from another studio, or one of ours) as the reference for the style of future carousels for OTHER brands, with those brands' own photos, logo and colors. Read its style as the choices our templates can make; never its words, brand or exact colors.
+
+Our templates (1080x1350 slides, 80 px margins, the logo always in the same place):
+- "composition", where the photo and the text go: "stacked" (text on the ground at the top, the photo below it), "photo_top" (the photo full-width from the top, the text below it), "window" (the photo in a framed window inside the margins, the text beside it), "overlay" (the photo full-bleed with the text over its quietest edge), "cutout" (the person or product cut out of its photo, big, standing on a plain ground with a giant word behind it, the text above), "split" (the photo on top with a hard edge, the text on a solid ground below). Pick the closest; type-only designs: the one their photo slides would most likely use.
+- "ground": "light" (white, cream, light grey), "dark" (near-black, charcoal, deep navy) or "brand" (a deep or pastel tone of the brand's color).
+- "colorSlides": "none", "cover", "cta" or "both": slides that are a full block of the brand color.
+- "typeScale": "loud" (big, poster-like headlines) or "calm" (smaller, quiet). "headlineCase": "as_is" or "upper". "align": "center" or "left".
+- "products": "loose" (floating on the ground, with a soft shadow) or "card" (on a light card).
+- "device": "underline" (a short bar under the headline) or "pill_label" (a small label in a pill above the hook, or no device at all).
+- "personality" (the type's character): "editorial" (serif, magazine), "bold" (heavy, condensed, sporty), "friendly" (rounded, warm), "modern" (geometric, techy), "heritage" (classic, traditional), "clean" (neutral sans).
+- "decor": true only when ornaments, textures or graphic shapes are part of the look; false for clean designs.
+- "emphasis": true when one or two words of the headline stand out in another color or weight.
+- "notes": two or three sentences on what makes it look like this, in words a designer can reuse with another brand's photos and colors: how big the photo or product is, the hierarchy, the type treatment (mixed weights, an accent word, tight leading), the color approach, how much air.
+
+Reply with JSON only: {"composition": string, "ground": string, "colorSlides": string, "typeScale": string, "headlineCase": string, "align": string, "products": string, "device": string, "personality": string, "decor": boolean, "emphasis": boolean, "notes": string}`;
+
 export const RETOUCHER = `You are a senior designer retouching one carousel slide in GIMP through tools. The slide (${SLIDE.width}x${SLIDE.height}) is already built from the carousel's template with its visual system, and is open as image 0 with named layers: "Background", "Photo", "Card", "Gradient", "Eyebrow", "Label", "Headline", "Underline", "Body", "Button", "Button text", "Logo", "Logo plate", "Swipe", "Frame", "Ground", "Glow", "Decor" (only the ones this slide uses).
 
 Your job is to fix exactly what the art director or the owner asks, and nothing else:

@@ -18,6 +18,7 @@ import { backfill, batchFeedback, calibrationReport, judgedVotes, learningVotes,
 import { library } from './learned.js';
 import { backfillLibrary, libraryItems, libraryUrl } from './library.js';
 import { failureKinds } from './metrics.js';
+import { addReference, deleteReference, reference, referenceFromRun, references, referenceUrl, type Reference } from './references.js';
 import { batchReport, batchSummaries, enqueue, failuresReport, historyRows, isPaused, lessons, markFailed, markFinished, markRunning, nextWaiting, queueItems, removeWaiting, savedLists, setPaused, type QueueItem } from './queue.js';
 
 Run.onSave = (run) => {
@@ -50,6 +51,7 @@ const server = http.createServer(async (req, res) => {
       if (!body.brief?.url && !body.brief?.business) return json(res, 400, { error: 'Add your website' });
       if (!body.brief.url && !body.brief.goal) return json(res, 400, { error: 'Without a website, tell us what the post should do' });
       if (body.brief.url && !/^https?:\/\//i.test(body.brief.url)) body.brief.url = `https://${body.brief.url}`;
+      if (body.brief.reference && !reference(body.brief.reference)) return json(res, 400, { error: 'That style is no longer in the gallery' });
       const run = new Run(body.brief);
       await run.init();
       await addPhotos(run, body.photos ?? []);
@@ -129,7 +131,10 @@ const server = http.createServer(async (req, res) => {
       return json(
         res,
         200,
-        library({ stats: rawTaste(), votes: judgedVotes(), calibration: cal, batches, failures: failureKinds(historyRows()), lessons: lessons(), learned: learningVotes(), made: libraryItems().map((item) => ({ item, url: libraryUrl(item) })), verdicts: batchFeedback() }),
+        library({ stats: rawTaste(), votes: judgedVotes(), calibration: cal, batches, failures: failureKinds(historyRows()), lessons: lessons(), learned: learningVotes(), made: libraryItems().map((item) => ({ item, url: libraryUrl(item) })),
+          verdicts: batchFeedback(),
+          styles: references().map((r) => ({ title: r.title, url: referenceUrl(r), source: r.source, notes: r.style.notes, choices: `${r.style.composition} · ${r.style.ground} ground · ${r.style.typeScale} type · ${r.style.personality}`, at: r.at })),
+        }),
       );
     }
 
@@ -141,10 +146,33 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, Object.fromEntries(learningVotes()));
     }
 
+    // GET /api/references: the style gallery, newest first
+    if (req.method === 'GET' && url.pathname === '/api/references') return json(res, 200, references().map(publicRef));
+
+    // POST /api/references {name, base64, title?}: a design the owner likes, read once by a vision model
+    if (req.method === 'POST' && url.pathname === '/api/references') {
+      const { name, base64, title } = (await readJson(req)) as { name?: unknown; base64?: unknown; title?: unknown };
+      if (typeof base64 !== 'string' || base64.length < 100) return json(res, 400, { error: 'Add an image' });
+      const fallback = typeof name === 'string' ? name.replace(/\.[a-z0-9]+$/i, '').replace(/[-_]+/g, ' ') : '';
+      return json(res, 201, publicRef(await addReference(base64, typeof title === 'string' && title.trim() ? title : fallback)));
+    }
+
+    // DELETE /api/references/:id
+    if (req.method === 'DELETE' && parts[0] === 'api' && parts[1] === 'references' && parts[2]) {
+      return (await deleteReference(parts[2])) ? json(res, 200, references().map(publicRef)) : json(res, 404, { error: 'Not in the gallery' });
+    }
+
     let run = parts[0] === 'api' && parts[1] === 'runs' && parts[2] ? runs.get(parts[2]) : undefined;
     if (!run && parts[0] === 'api' && parts[1] === 'runs' && parts[2]) {
       run = await Run.load(parts[2]);
       if (run) runs.set(run.id, run);
+    }
+
+    // POST /api/runs/:id/reference: the carousel joins the style gallery
+    if (req.method === 'POST' && parts[3] === 'reference') {
+      if (!run) return json(res, 404, { error: 'Run not found' });
+      if (run.status !== 'done') return json(res, 409, { error: 'The carousel is not finished yet' });
+      return json(res, 201, publicRef(await referenceFromRun(run)));
     }
 
     // POST /api/runs/:id/stop: ends the run at its next step (GIMP and the models finish what they are doing)
@@ -336,6 +364,8 @@ async function downloadZip(run: Run, res: http.ServerResponse): Promise<void> {
 function json(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json' }).end(JSON.stringify(body));
 }
+
+const publicRef = (ref: Reference) => ({ id: ref.id, title: ref.title, url: referenceUrl(ref), source: ref.source, runId: ref.runId, style: ref.style, at: ref.at });
 
 async function readJson(req: http.IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];

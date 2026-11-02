@@ -11,6 +11,7 @@ import type { Plan, Run } from '../run.js';
 import { describeDirections, recentLooks, taste, tasteCorrections } from '../db.js';
 import { describeTaste } from '../taste.js';
 import { brandKit, describeDecorTaste, keep, likedPiece } from '../library.js';
+import { applyReference, describeReference, reference, referenceUrl as referenceUrlOf } from '../references.js';
 import { describeFonts, describeLooks, freshen, hostOf } from '../variety.js';
 import { ART_DIRECTOR } from './prompts.js';
 
@@ -24,6 +25,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   const liked = describeTaste(stats, ['composition', 'personality', 'heading font', 'body font', 'device', 'logo', 'align', 'case', 'ground', 'decor', 'type', 'color slides', 'numbers']);
   const corrections = tasteCorrections();
   const decorTaste = describeDecorTaste(hostOf(run.brief.url));
+  const ref = reference(run.brief.reference);
   const parts: ContentPart[] = [
     {
       type: 'text',
@@ -37,7 +39,8 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
         corrections ? `The owner said these conclusions from the votes were learned wrong (do not apply them; their words):\n${corrections}` : '',
         describeDirections(),
         decorTaste,
-        recent.length ? `The agency's last carousels for other brands (composition, headlines / text, device, logo, alignment, case):\n${describeLooks(recent)}` : '',
+        ref ? describeReference(ref) : '',
+        recent.length && !ref ? `The agency's last carousels for other brands (composition, headlines / text, device, logo, alignment, case):\n${describeLooks(recent)}` : '',
         `Slides: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role}${s.photo ? ' (photo)' : ''}`).join('; ')}.`,
         plan.slides[0]?.eyebrow ? 'The cover has a short label above its headline (the other slides have none).' : 'No slide has a label above the headline: "pill_label" is not an option.',
         `Language of the slides: ${run.brief.language ?? 'English'}.`,
@@ -46,6 +49,10 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
     },
   ];
   if (run.logo) parts.push(imagePart(await thumb(run.logo.path, 320), 'image/jpeg'));
+  if (ref) {
+    parts.push({ type: 'text', text: 'The reference the owner chose for the style (its style only):' });
+    parts.push(imagePart(await thumb(ref.file, 768), 'image/jpeg'));
+  }
   // How the brand designs: its own website, as a visitor sees it.
   for (const shot of run.site?.screens ?? []) {
     parts.push({ type: 'text', text: `The website on a ${shot.includes('phone') ? 'phone' : 'computer'} (the top of the page):` });
@@ -84,7 +91,11 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   });
   const system = normalizeSystem(raw, run.brief.brandColors ?? []);
   const changes = freshen(system, onGoogle, recent, !!plan.slides[0]?.eyebrow, stats);
-  if (changes.length) run.emit('status', 'designer', `So it doesn't look like the last brands: ${changes.join('; ')}.`);
+  if (changes.length && !ref) run.emit('status', 'designer', `So it doesn't look like the last brands: ${changes.join('; ')}.`);
+  if (ref) {
+    const followed = applyReference(system, plan, ref);
+    run.emit('status', 'designer', `In the style of the reference "${ref.title}"${followed.length ? `: ${followed.join('; ')}` : ''}.`, { data: { url: referenceUrlOf(ref) } });
+  }
   if (system.decor) await makeDecor(run, system.decor, { type: plan.business_type, personality: system.personality });
 
   // Fonts that can't be installed fall back to Montserrat, so the system still holds.

@@ -30,9 +30,11 @@ type Input = {
   made?: { item: LibraryItem; url: string }[];
   // The owner's verdict on whole batches.
   verdicts?: BatchFeedback[];
+  // The style gallery (references.ts): title, image, where it came from and what it decides.
+  styles?: { title: string; url: string; source: string; notes: string; choices: string; at: string }[];
 };
 
-export function library({ stats, votes, calibration: cal, batches, failures, lessons, learned, made = [], verdicts = [] }: Input): Shelf[] {
+export function library({ stats, votes, calibration: cal, batches, failures, lessons, learned, made = [], verdicts = [], styles = [] }: Input): Shelf[] {
   const voted = (card: Card): Card => {
     const v = card.id ? learned.get(card.id) : undefined;
     return v ? { ...card, vote: v.value, feedback: v.note } : card;
@@ -153,8 +155,15 @@ export function library({ stats, votes, calibration: cal, batches, failures, les
     {
       id: 'references',
       title: 'References',
-      about: 'Recipes from ads that work (Meta Ad Library, running 30+ days): layout, hierarchy, hook and call to action, never the image. Coming next.',
-      cards: [],
+      about: 'The style gallery you pick from in Create: designs you uploaded (only their style is used, never the image) and your own carousels promoted from the feed. The art director follows the chosen one with the brand’s own colors and photos.',
+      cards: styles.map((r) => ({
+        title: `${r.title}${r.source === 'carousel' ? ' · our carousel' : ''}`,
+        text: r.notes || 'No notes.',
+        evidence: r.choices,
+        tone: 'info' as const,
+        at: r.at,
+        image: r.url,
+      })),
     },
   ];
   return shelves.map((s) => ({ ...s, cards: s.cards.map(voted) }));

@@ -8,6 +8,7 @@ import 'package:web/web.dart' as web;
 
 import 'api.dart';
 import 'feed.dart';
+import 'gallery.dart';
 import 'learned.dart';
 import 'queue.dart';
 
@@ -206,6 +207,12 @@ class _StudioPageState extends State<StudioPage> {
   StreamSubscription<RunEvent>? sub;
   // Off on the server (REELS) until a reel takes less than a run.
   bool reels = false;
+  // The style gallery and the style this carousel follows (null: the agents decide).
+  List<Map<String, dynamic>> styles = [];
+  String? reference;
+  bool uploading = false;
+
+  Map<String, dynamic>? get chosenStyle => styles.where((s) => s['id'] == reference).firstOrNull;
 
   bool get running => runId != null && !const {'done', 'error'}.contains(events.lastOrNull?.type);
   RunEvent? get done => events.lastOrNull?.type == 'done' ? events.last : null;
@@ -229,6 +236,48 @@ class _StudioPageState extends State<StudioPage> {
     Api.config().then((c) {
       if (mounted) setState(() => reels = c['reels'] == true);
     }, onError: (_) {});
+    loadStyles();
+  }
+
+  Future<void> loadStyles() async {
+    try {
+      final list = await Api.references();
+      if (mounted) setState(() => styles = list);
+    } catch (_) {}
+  }
+
+  void chooseStyle(String? id) => setState(() => reference = id);
+
+  // Each design is read by a vision model on the server, one after another.
+  Future<void> uploadStyles() async {
+    final images = await pickImages();
+    if (images.isEmpty) return;
+    setState(() {
+      uploading = true;
+      error = null;
+    });
+    try {
+      for (final (name, base64) in images) {
+        final added = await Api.addReference(name, base64);
+        if (mounted) setState(() => styles = [added, ...styles]);
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = '$e');
+    } finally {
+      if (mounted) setState(() => uploading = false);
+    }
+  }
+
+  Future<void> deleteStyle(String id) async {
+    try {
+      await Api.deleteReference(id);
+      setState(() {
+        styles = styles.where((s) => s['id'] != id).toList();
+        if (reference == id) reference = null;
+      });
+    } catch (e) {
+      setState(() => error = '$e');
+    }
   }
 
   void refresh() => setState(() {});
@@ -251,6 +300,7 @@ class _StudioPageState extends State<StudioPage> {
         goal: goal.text.trim(),
         audience: audience.text.trim(),
         brandColors: colors.text.split(',').map((c) => c.trim()).where((c) => c.isNotEmpty).toList(),
+        reference: reference,
       );
       listen(id);
     } catch (e) {
@@ -307,7 +357,14 @@ class _StudioPageState extends State<StudioPage> {
         body: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 48),
           child: Center(
-            child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 560), child: _BriefForm(state: this, hero: true)),
+            child: Column(children: [
+              ConstrainedBox(constraints: const BoxConstraints(maxWidth: 560), child: _BriefForm(state: this, hero: true)),
+              const SizedBox(height: 56),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 1120),
+                child: StyleGallery(styles: styles, selected: reference, uploading: uploading, onSelect: chooseStyle, onUpload: uploadStyles, onDelete: deleteStyle),
+              ),
+            ]),
           ),
         ),
       );
@@ -383,6 +440,9 @@ class _BriefForm extends StatelessWidget {
             items: [for (final l in languages) DropdownMenuItem(value: l, child: Text(l))],
             onChanged: (v) => s.setLanguage(v!),
           ),
+          const SizedBox(height: 18),
+          const _FieldLabel('Style'),
+          _ChosenStyle(state: s, hero: hero),
         ],
       ),
       const SizedBox(height: 18),
@@ -414,6 +474,30 @@ class _BriefForm extends StatelessWidget {
           style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44), foregroundColor: Theme.of(context).colorScheme.error),
         ),
       ],
+    ]);
+  }
+}
+
+// The style the carousel follows, picked in the gallery below the form.
+class _ChosenStyle extends StatelessWidget {
+  const _ChosenStyle({required this.state, required this.hero});
+  final _StudioPageState state;
+  final bool hero;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = state.chosenStyle;
+    if (style == null) {
+      return Text(hero ? 'The agents decide. Pick a style in the gallery below.' : 'The agents decide.', style: const TextStyle(color: Palette.faint, fontSize: 13));
+    }
+    return Row(children: [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(6),
+        child: Image.network(Api.fileUrl(style['url'] as String), width: 40, height: 50, fit: BoxFit.cover),
+      ),
+      const SizedBox(width: 12),
+      Expanded(child: Text(style['title'] as String, style: const TextStyle(fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis)),
+      if (!state.running) IconButton(tooltip: 'Let the agents decide', onPressed: () => state.chooseStyle(null), icon: const Icon(Icons.close, size: 18)),
     ]);
   }
 }

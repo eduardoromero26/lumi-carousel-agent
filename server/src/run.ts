@@ -25,6 +25,8 @@ export type Brief = {
   language?: string;
   audience?: string;
   brandColors?: string[];
+  // A design from the style gallery (references.ts) the carousel follows.
+  reference?: string;
 };
 
 // A backdrop is a website image with text baked in: it is shown whole in a window,

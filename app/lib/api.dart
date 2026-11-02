@@ -44,6 +44,7 @@ class Api {
     required String goal,
     String audience = '',
     List<String> brandColors = const [],
+    String? reference,
   }) async {
     final res = await http.post(
       Uri.parse('$apiUrl/api/runs'),
@@ -56,6 +57,7 @@ class Api {
           'goal': goal,
           if (audience.isNotEmpty) 'audience': audience,
           if (brandColors.isNotEmpty) 'brandColors': brandColors,
+          'reference': ?reference,
         },
       }),
     );
@@ -121,6 +123,38 @@ class Api {
     if (res.statusCode != 200) throw Exception('Error ${res.statusCode}');
     final body = jsonDecode(res.body) as Map<String, dynamic>;
     return (votes: (body['votes'] as Map<String, dynamic>).cast<String, int>(), stars: body['stars'] as int?);
+  }
+
+  // The style gallery: [{id, title, url, source, runId, style, at}], newest first.
+  static Future<List<Map<String, dynamic>>> references() async {
+    final res = await http.get(Uri.parse('$apiUrl/api/references'));
+    if (res.statusCode != 200) throw Exception('Error ${res.statusCode}');
+    return (jsonDecode(res.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  // A design the owner likes; the server reads its style with a vision model.
+  static Future<Map<String, dynamic>> addReference(String name, String base64) async {
+    final res = await http.post(
+      Uri.parse('$apiUrl/api/references'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'name': name, 'base64': base64}),
+    );
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    if (res.statusCode != 201) throw Exception(body['error'] ?? 'Error ${res.statusCode}');
+    return body;
+  }
+
+  static Future<void> deleteReference(String id) async {
+    final res = await http.delete(Uri.parse('$apiUrl/api/references/$id'));
+    if (res.statusCode != 200) throw Exception((jsonDecode(res.body) as Map<String, dynamic>)['error'] ?? 'Error ${res.statusCode}');
+  }
+
+  // One of our carousels joins the gallery.
+  static Future<Map<String, dynamic>> referenceFromRun(String runId) async {
+    final res = await http.post(Uri.parse('$apiUrl/api/runs/$runId/reference'));
+    final body = jsonDecode(res.body) as Map<String, dynamic>;
+    if (res.statusCode != 201) throw Exception(body['error'] ?? 'Error ${res.statusCode}');
+    return body;
   }
 
   // What the votes say about each design choice.

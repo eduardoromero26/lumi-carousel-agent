@@ -1,7 +1,7 @@
 import { setDefaultResultOrder } from 'node:dns';
 import { createReadStream, existsSync } from 'node:fs';
 import archiver from 'archiver';
-import { stat, writeFile } from 'node:fs/promises';
+import { appendFile, stat, writeFile } from 'node:fs/promises';
 import http from 'node:http';
 import sharp from 'sharp';
 import path from 'node:path';
@@ -393,6 +393,16 @@ const types: Record<string, string> = {
 
 function contentType(file: string): string {
   return types[path.extname(file).toLowerCase()] ?? 'application/octet-stream';
+}
+
+// A rejected promise nobody awaited used to kill the server silently (twice in one night):
+// it goes to runs/server.log with its stack and the server keeps serving.
+for (const event of ['unhandledRejection', 'uncaughtException'] as const) {
+  process.on(event, (error: unknown) => {
+    const text = `${new Date().toISOString()} ${event}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`;
+    console.error(text);
+    void appendFile(path.join(config.runsDir, 'server.log'), text).catch(() => undefined);
+  });
 }
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

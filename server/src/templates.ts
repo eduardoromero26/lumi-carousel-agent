@@ -5,6 +5,7 @@ import sharp, { type Sharp } from 'sharp';
 import { SLIDE } from './config.js';
 import { contrast, cutsOut, luminance, paletteFor, type DesignSystem, type Layout } from './design.js';
 import type { Gimp } from './gimp.js';
+import { buildFromLayout } from './layout_render.js';
 import type { Asset, Photo, Run, SlidePlan } from './run.js';
 
 // The agency's carousel templates, built in GIMP with real, editable layers: the
@@ -17,11 +18,11 @@ const M = 80;
 const TEXT_W = W - 2 * M;
 // How much a photo may grow before it pixelates (owners saw it at 2x); a cutout on a
 // clean ground, scaled with Lanczos and sharpened, holds a little more.
-const MAX_UP = 1.3;
+export const MAX_UP = 1.3;
 const MAX_CUT = 1.5;
 
 // Python helpers that run inside GIMP before every template.
-const LIB = String.raw`
+export const LIB = String.raw`
 def _color(_hex):
     return Gegl.Color.new(_hex)
 
@@ -156,7 +157,7 @@ async function shadow(file: string, width: number): Promise<void> {
   await sharp(Buffer.from(svg)).blur(14).png().toFile(file);
 }
 
-type Fit = { x: number; y: number; w: number; h: number };
+export type Fit = { x: number; y: number; w: number; h: number };
 export type Rect = { x1: number; y1: number; x2: number; y2: number };
 
 const FULL: Rect = { x1: 0, y1: 0, x2: 1, y2: 1 };
@@ -210,13 +211,13 @@ async function groundSlice(run: Run, system: DesignSystem, n: number, dir: strin
 
 // Text reads on a surface when it holds 4.5:1 on its average and on its lighter and
 // darker spots (one deviation away).
-async function readable(surface: Buffer, ink: string): Promise<boolean> {
+export async function readable(surface: Buffer, ink: string): Promise<boolean> {
   const { channels } = await sharp(surface).stats();
   const tone = (d: number) => '#' + channels.slice(0, 3).map((c) => clamp(Math.round(c.mean + d * c.stdev), 0, 255).toString(16).padStart(2, '0')).join('');
   return [-1, 0, 1].every((d) => contrast(tone(d), ink) >= 4.5);
 }
 
-function mix(a: string, b: string, t: number): string {
+export function mix(a: string, b: string, t: number): string {
   const c = (hex: string, i: number) => parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16);
   return '#' + [0, 1, 2].map((i) => Math.round(c(a, i) * (1 - t) + c(b, i) * t).toString(16).padStart(2, '0')).join('');
 }
@@ -374,7 +375,7 @@ function contain(img: { width: number; height: number }, box: Rect, content: Rec
 
 // The photo at its size on the slide, scaled here with Lanczos (and sharpened when it
 // grows) instead of GIMP's cubic, which turned small website photos into mush.
-async function crisp(file: string, frame: Fit, out: string): Promise<string> {
+export async function crisp(file: string, frame: Fit, out: string): Promise<string> {
   const { width = 1, height = 1, orientation } = await sharp(file).metadata();
   const native = orientation && orientation >= 5 ? height : width;
   let img = sharp(file).rotate().resize(frame.w, frame.h, { fit: 'fill', kernel: 'lanczos3' });
@@ -389,7 +390,7 @@ function bandSkeleton(run: Run): boolean {
   return !!run.plan?.slides.slice(1, -1).some((s) => s.layout === 'photo_band' && !run.photos.find((p) => p.id === s.photo)?.backdrop && !!s.photo);
 }
 
-function onSlide(r: Rect, f: Fit): Rect {
+export function onSlide(r: Rect, f: Fit): Rect {
   return { x1: Math.round(f.x + r.x1 * f.w), y1: Math.round(f.y + r.y1 * f.h), x2: Math.round(f.x + r.x2 * f.w), y2: Math.round(f.y + r.y2 * f.h) };
 }
 
@@ -398,7 +399,7 @@ function overlap(a: Rect, b: Rect): number {
 }
 
 // What must stay whole: the subject and the faces, with a little air, inside the photo.
-function keepBox(boxes: Rect[] | undefined): Rect | undefined {
+export function keepBox(boxes: Rect[] | undefined): Rect | undefined {
   if (!boxes?.length) return undefined;
   const u = { x1: Math.min(...boxes.map((b) => b.x1)), y1: Math.min(...boxes.map((b) => b.y1)), x2: Math.max(...boxes.map((b) => b.x2)), y2: Math.max(...boxes.map((b) => b.y2)) };
   const ax = (u.x2 - u.x1) * 0.04;
@@ -460,6 +461,8 @@ export type SlideInput = {
   // The faces alone (0..1 of the photo): no gradient or fade goes over them.
   faces?: Rect[];
   focus?: { x: number; y: number };
+  // The photo's subject cut out in place (Photo.aligned), for a reference's title behind it.
+  person?: string;
 };
 
 // Where everything went, for the lint and the fixer.
@@ -485,15 +488,21 @@ export type Built = {
   textScale: number;
   photoCropped: boolean;
   align: 'center' | 'left';
+  // Laid out after the owner's reference (layout.ts): its own margins, not the template's.
+  free?: boolean;
 };
 
-export type Shape = 'text' | 'card' | 'cutout' | 'split' | 'window' | 'photo_top' | 'stacked' | 'overlay';
+export type Shape = 'text' | 'card' | 'cutout' | 'split' | 'window' | 'photo_top' | 'stacked' | 'overlay' | 'reference';
 
 type Part = { kind: 'number' | 'eyebrow' | 'headline' | 'body' | 'swipe' | 'button'; name: string; w: number; h: number; y: number; top: number };
 
 // Builds one slide from its template in the GIMP image already open (a blank slide).
 export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> {
   const { run, system, slide, photo } = input;
+  if (system.layout) {
+    const built = await buildFromLayout(gimp, input, system.layout);
+    if (built) return built;
+  }
   const tweaks = slide.tweaks ?? {};
   const dir = path.join(run.dir, 'build');
   await mkdir(dir, { recursive: true });
@@ -1031,7 +1040,7 @@ async function measure(gimp: Gimp, input: SlideInput, layout: Layout, scale: num
 
 // The logo version that reads on the ground; a logo with its own solid background
 // (or one too close to the ground) sits on a plate so it never looks pasted.
-function pickLogo(run: Run, ground: string): { asset: Asset; pill?: string } | undefined {
+export function pickLogo(run: Run, ground: string): { asset: Asset; pill?: string } | undefined {
   const options = [run.logo, run.logoLight].filter(Boolean) as Asset[];
   if (!options.length) return undefined;
   // The most readable version; between equals, the wider one (a wordmark reads better in a header).

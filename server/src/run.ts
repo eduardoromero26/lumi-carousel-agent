@@ -48,6 +48,9 @@ export type Photo = {
   grounded?: boolean;
   // A cutout of a person: only a person cut at the waist may bleed off the slide's foot.
   person?: boolean;
+  // The cutout at its photo's full size, in place: it lines up with the photo (a reference
+  // layout puts it in front of a giant word drawn over the photo).
+  aligned?: string;
   // The website asset it comes from (none for the owner's uploads).
   asset?: string;
 };
@@ -101,6 +104,8 @@ export type SlidePlan = {
   button?: string;
   // The word or two of the headline that carry it, set in the accent color.
   emphasis?: string;
+  // The slide's topic in a word or two ("Melasma"), for a reference layout's giant title.
+  kicker?: string;
   // Where SAM found the subject: 0..1 of the photo, and in slide pixels for the current frame.
   subjectNorm?: { x1: number; y1: number; x2: number; y2: number };
   subjectBox?: { x1: number; y1: number; x2: number; y2: number };

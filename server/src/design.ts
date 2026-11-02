@@ -1,3 +1,4 @@
+import { describeLayout, type RefLayout } from './layout.js';
 import { PERSONALITIES, type Personality } from './variety.js';
 
 // The carousel's visual system: decided once by the art director, applied by the
@@ -50,6 +51,9 @@ export type DesignSystem = {
   // A big "01", "02"… above the text of the middle slides: reasons, steps or products in order.
   numbers: boolean;
   decor?: Decor;
+  // The owner's reference plan (layout.ts), with the serif and sans it needs by weight.
+  layout?: RefLayout;
+  layoutFonts?: { serif: Record<number, string>; sans: Record<number, string> };
 };
 
 // The carousel's decor kit: the art director writes the Muse Image prompts once, the
@@ -256,6 +260,7 @@ export function describeSystem(s: DesignSystem): string {
     COMPOSITION_NOTES[s.composition],
     `${s.products === 'loose' ? 'Products loose on the ground, no cards' : `Products on cards`}; corners ${s.radius ? `${s.radius} px` : 'square'}; ${s.ground === 'gradient' ? `gradient ground ${s.base} → ${s.ground2}` : 'flat ground'}${s.grain ? ' with grain' : ''}; ${s.button} buttons.`,
     s.siteNotes ? `From the website: ${s.siteNotes}` : '',
+    s.layout ? `Photo slides follow the owner's reference layout, on purpose (its own margins, not 80 px): ${describeLayout(s.layout)}` : '',
     s.notes,
     decorNotes(s.decor),
   ]

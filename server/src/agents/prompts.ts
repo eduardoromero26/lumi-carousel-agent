@@ -27,6 +27,7 @@ Rules:
   - "poster": big type only, at most one, never two in a row.
   - "cta": the last slide, always: what to do next, with a short "button" (2 to 4 words from the site, e.g. "Visit the store", "Book on WhatsApp"); its photo is optional.
 - "eyebrow": only on slide 1, optional: a short label above the hook, 1 to 3 words from the site ("New arrival", "Since 1917", the shop's category). Empty on every other slide. Never repeat it in the body.
+- "kicker": the slide's topic in one or two words ("Melasma", "Bodas", "Sofás"), never the headline's first words; a layout may set it giant above the headline.
 - "emphasis": the one or two words of the headline that carry it, copied exactly as they are in the headline ("Comfort", "sin intereses"); the template sets them in the brand's accent color. Empty when no word stands out. Never the whole headline.
 - "visual" is one short sentence about the mood, nothing else.
 - "subject" names, in one plain singular English noun ("baby", "doctor", "plate", "storefront"; not plurals or rare words), what must stay fully visible in the photo ("taco plate", "woman", "storefront"). A vision model finds it so the crop and the text never cut or cover it.
@@ -34,7 +35,7 @@ Rules:
 - "focus" is your guess of where the subject is (0 to 1 from the top-left), used only if the vision model can't find it.
 
 Reply with JSON only:
-{"business_type": string, "format": "catalog"|"proof"|"benefits"|"how_it_works"|"offer", "concept": string, "why": string (why this carousel serves the goal), "slides": [{"n": number, "role": "hook"|"value"|"proof"|"cta", "photo": photo id or null, "headline": string, "body": string, "visual": string, "subject": string, "cut_out": boolean, "focus": {"x": number, "y": number}, "layout": "cover"|"product"|"hero"|"photo_band"|"poster"|"cta", "eyebrow": string, "emphasis": string, "button": string}], "caption": string, "hashtags": string[]}`;
+{"business_type": string, "format": "catalog"|"proof"|"benefits"|"how_it_works"|"offer", "concept": string, "why": string (why this carousel serves the goal), "slides": [{"n": number, "role": "hook"|"value"|"proof"|"cta", "photo": photo id or null, "headline": string, "body": string, "visual": string, "subject": string, "cut_out": boolean, "focus": {"x": number, "y": number}, "layout": "cover"|"product"|"hero"|"photo_band"|"poster"|"cta", "eyebrow": string, "kicker": string, "emphasis": string, "button": string}], "caption": string, "hashtags": string[]}`;
 
 export const ANALYST = `You are the brand analyst of a social media agency. You receive the image assets found on a small business website and label each one so the team knows what it can use.
 
@@ -211,7 +212,13 @@ Our templates (1080x1350 slides, 80 px margins, the logo always in the same plac
 - "emphasis": true when one or two words of the headline stand out in another color or weight.
 - "notes": two or three sentences on what makes it look like this, in words a designer can reuse with another brand's photos and colors: how big the photo or product is, the hierarchy, the type treatment (mixed weights, an accent word, tight leading), the color approach, how much air.
 
-Reply with JSON only: {"composition": string, "ground": string, "colorSlides": string, "typeScale": string, "headlineCase": string, "align": string, "products": string, "device": string, "personality": string, "decor": boolean, "emphasis": boolean, "notes": string}`;
+Then "layout": the design's plan, measured on it, so it can be rebuilt with another brand's photo and words. Every box is {"x1", "y1", "x2", "y2"} as fractions of the design (0..1 from the top-left), tight to what it holds:
+- "photo": {"mode": "full" (the photo fills the design), "box" (the photo in a frame), "none"; "box": where it is; "subjectAt": where the main person or product stands across the design, 0 left to 1 right}.
+- "scrim": where the photo is shaded or lightened so text reads: "none", "left", "right", "top", "bottom". "textTone": "light" or "dark", the text's color.
+- "blocks": each text block, in reading order: {"role": "title" (a giant word or two, the topic), "headline" (the main message), "body" (a short paragraph), "label" (a small kicker), "cta" (a button or call), "signature" (the name or brand line at the foot), "box", "align": "left"|"center"|"right", "case": "upper"|"as_is", "weight": "light"|"regular"|"bold" (the dominant one), "font": "serif"|"sans", "tracking": letter spacing in em (0 normal, 0.15-0.3 widely spaced capitals), "behindSubject": true when the person or product stands in front of it, "emphasis": "bold" when a few words are heavier, "color" when they are in another color, else "none"}. Only the blocks the design has.
+- "elements": the small graphics, {"type": "line" (a thin divider), "arrow_circle" (a circle with an arrow), "circle", "pill", "frame", "box"}. Not the photo, not the logo.
+
+Reply with JSON only: {"composition": string, "ground": string, "colorSlides": string, "typeScale": string, "headlineCase": string, "align": string, "products": string, "device": string, "personality": string, "decor": boolean, "emphasis": boolean, "notes": string, "layout": {"photo": {...}, "scrim": string, "textTone": string, "blocks": [...], "elements": [...]}}`;
 
 export const RETOUCHER = `You are a senior designer retouching one carousel slide in GIMP through tools. The slide (${SLIDE.width}x${SLIDE.height}) is already built from the carousel's template with its visual system, and is open as image 0 with named layers: "Background", "Photo", "Card", "Gradient", "Eyebrow", "Label", "Headline", "Underline", "Body", "Button", "Button text", "Logo", "Logo plate", "Swipe", "Frame", "Ground", "Glow", "Decor" (only the ones this slide uses).
 

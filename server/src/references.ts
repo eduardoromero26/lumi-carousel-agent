@@ -10,6 +10,7 @@ import { chatJson, imagePart } from './llm.js';
 import type { Plan, Run } from './run.js';
 import { PERSONALITIES, placeLogo, type Personality } from './variety.js';
 import { REFERENCE_READER } from './agents/prompts.js';
+import { normalizeLayout, type RefLayout } from './layout.js';
 
 // The style gallery: designs the owner picks as the look of a carousel, uploaded (other
 // studios' work: only its abstract parameters are used, never the image on a slide) or
@@ -30,6 +31,8 @@ export type RefStyle = {
   emphasis: boolean;
   // What makes it look like this, in words a designer can reuse with another brand.
   notes: string;
+  // Its plan, box by box (layout.ts): the renderer rebuilds it with the brand's photo and words.
+  layout?: RefLayout;
 };
 
 export type Reference = { id: string; title: string; file: string; source: 'upload' | 'carousel'; runId: string | null; style: RefStyle; at: string };
@@ -92,7 +95,24 @@ export function normalizeStyle(raw: Partial<Record<keyof RefStyle, unknown>>): R
     decor: raw.decor === true,
     emphasis: raw.emphasis !== false,
     notes: typeof raw.notes === 'string' ? raw.notes.trim().slice(0, 600) : '',
+    layout: normalizeLayout(raw.layout),
   };
+}
+
+async function readStyle(file: string): Promise<RefStyle> {
+  const thumb = await sharp(file).resize(900, 900, { fit: 'inside' }).jpeg({ quality: 82 }).toBuffer();
+  const raw = await chatJson<Partial<Record<keyof RefStyle, unknown>>>([
+    { role: 'system', content: REFERENCE_READER },
+    { role: 'user', content: [{ type: 'text', text: 'The reference design:' }, imagePart(thumb.toString('base64'), 'image/jpeg')] },
+  ]);
+  return normalizeStyle(raw);
+}
+
+// Reads an uploaded reference again (after the reader learned something new, like its layout).
+export async function rereadReference(id: string): Promise<Reference | undefined> {
+  const ref = reference(id);
+  if (!ref || ref.source !== 'upload') return ref;
+  return save({ ...ref, style: await readStyle(ref.file) });
 }
 
 // An uploaded design: kept as a JPEG and read once by a vision model.
@@ -102,12 +122,7 @@ export async function addReference(base64: string, title: string): Promise<Refer
   await mkdir(refsDir, { recursive: true });
   const image = await sharp(Buffer.from(base64, 'base64')).rotate().flatten({ background: '#ffffff' }).resize(1400, 1400, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 88 }).toBuffer();
   await writeFile(file, image);
-  const thumb = await sharp(image).resize(900, 900, { fit: 'inside' }).jpeg({ quality: 82 }).toBuffer();
-  const raw = await chatJson<Partial<Record<keyof RefStyle, unknown>>>([
-    { role: 'system', content: REFERENCE_READER },
-    { role: 'user', content: [{ type: 'text', text: 'The reference design:' }, imagePart(thumb.toString('base64'), 'image/jpeg')] },
-  ]);
-  return save({ id, title: title.trim().slice(0, 80) || 'Reference', file, source: 'upload', runId: null, style: normalizeStyle(raw), at: new Date().toISOString() });
+  return save({ id, title: title.trim().slice(0, 80) || 'Reference', file, source: 'upload', runId: null, style: await readStyle(file), at: new Date().toISOString() });
 }
 
 // One of the agency's own carousels: its style is its visual system, exactly.
@@ -172,6 +187,10 @@ export function applyReference(system: DesignSystem, plan: Plan, ref: Reference)
     system[key] = value;
   };
   set('composition', s.composition, 'composition');
+  if (s.layout) {
+    system.layout = s.layout;
+    changes.push('photo slides laid out after the reference, box by box');
+  }
   set('colorSlides', s.colorSlides, 'color blocks');
   set('typeScale', s.typeScale, 'type');
   set('headlineCase', s.headlineCase, 'case');

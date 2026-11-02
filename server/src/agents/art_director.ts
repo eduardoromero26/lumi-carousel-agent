@@ -114,8 +114,22 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   system.gimpHeading = heading[system.headingWeight];
   system.gimpBody = bodyWeights[system.bodyWeight] ?? body[system.bodyWeight];
   system.gimpBodyBold = body[700] ?? system.gimpHeading;
+  if (system.layout) system.layoutFonts = await layoutFonts(gimp, system);
   run.emit('thought', 'designer', `Visual system for every slide: ${describeSystem(system)}`, { data: { system, screens: (run.site?.screens ?? []).map((s) => run.fileUrl(s)) } });
   return system;
+}
+
+// A serif and a sans in light, regular and bold for a reference layout: the brand's own when
+// they are of that kind, else a classic one. A family that fails stays out.
+const SERIF = /serif|garamond|bodoni|caslon|playfair|fraunces|lora|merriweather|baskerville|cormorant|marcellus|cardo|bitter|alegreya|cinzel|prata|spectral|crimson|libre|domine|vollkorn|zilla|young/i;
+async function layoutFonts(gimp: Gimp, system: DesignSystem): Promise<NonNullable<DesignSystem['layoutFonts']>> {
+  const serif = SERIF.test(system.headingFont) ? system.headingFont : SERIF.test(system.bodyFont) ? system.bodyFont : 'Cormorant Garamond';
+  const sans = !SERIF.test(system.bodyFont) ? system.bodyFont : !SERIF.test(system.headingFont) ? system.headingFont : 'Montserrat';
+  const install = (family: string) => installFont(gimp, family, [300, 400, 700]).catch(() => ({}) as Record<number, string>);
+  let serifSet = await install(serif);
+  // A light serif title needs a family that has a light weight.
+  if (!serifSet[300] && system.layout?.blocks.some((b) => b.font === 'serif' && b.weight === 'light')) serifSet = await install('Cormorant Garamond');
+  return { serif: serifSet, sans: await install(sans) };
 }
 
 // The decor kit, once for every slide: the brand's own liked piece first, then one the

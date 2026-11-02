@@ -47,8 +47,9 @@ export async function lintSlide(gimp: Gimp, built: Built, slide: SlidePlan): Pro
   }
   for (const [name, r] of present) {
     if (r.x1 < 60 || r.x2 > W - 60 || r.y1 < 44 || r.y2 > H - 44) issues.push(`${name} is too close to the slide's edge (${r.x1},${r.y1} to ${r.x2},${r.y2})`);
-    if (name !== 'the logo' && built.align === 'center' && Math.abs((r.x1 + r.x2) / 2 - W / 2) > 6) issues.push(`${name} is off-center`);
-    if (name !== 'the logo' && name !== 'the underline' && built.align === 'left' && Math.abs(r.x1 - 80) > 8) issues.push(`${name} is not on the left margin`);
+    // A reference layout keeps the reference's own margins.
+    if (!built.free && name !== 'the logo' && built.align === 'center' && Math.abs((r.x1 + r.x2) / 2 - W / 2) > 6) issues.push(`${name} is off-center`);
+    if (!built.free && name !== 'the logo' && name !== 'the underline' && built.align === 'left' && Math.abs(r.x1 - 80) > 8) issues.push(`${name} is not on the left margin`);
     if (built.card && area(inter(shrink(r, 3), built.card))) issues.push(`${name} overlaps the photo card`);
   }
 
@@ -75,7 +76,8 @@ export async function lintSlide(gimp: Gimp, built: Built, slide: SlidePlan): Pro
       (s.y2 > v.y2 + 2 && v.y2 < f.y + f.h - 2);
     if (cut) issues.push(`the ${slide.subject ?? 'subject'} is cut by the edge of the photo area: show it whole`);
     // Measured on the text band, as the template does when it chooses where the text goes.
-    const band = { x1: 80, y1: built.text.y1, x2: W - 80, y2: built.text.y2 };
+    // A reference layout's text sits in its own column: only that column counts.
+    const band = built.free ? built.text : { x1: 80, y1: built.text.y1, x2: W - 80, y2: built.text.y2 };
     if (area(inter(band, s)) / Math.max(1, area(band)) > 0.1) issues.push(`the text covers the ${slide.subject ?? 'subject'}`);
     const logo = present.find(([name]) => name === 'the logo');
     if (logo && area(inter(logo[1], s)) > 0) issues.push(`the logo covers the ${slide.subject ?? 'subject'}`);

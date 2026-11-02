@@ -116,13 +116,13 @@ export async function cutoutFlaw(file: string): Promise<string | undefined> {
 // Cuts the subject out of a photo with SAM and adds it to the run as a cutout
 // photo (a PNG with the original pixels and a transparent background). Undefined when
 // SAM finds nothing or the cut is not clean enough to show.
-export async function cutOut(run: Run, photo: Photo, subject: string): Promise<Photo | undefined> {
+export async function cutOut(run: Run, photo: Photo, subject: string, opts: { fresh?: boolean } = {}): Promise<Photo | undefined> {
   const id = `${photo.id}c`;
   const file = path.join(run.dir, 'photos', `${id}.png`);
   const hash = photoHash(photo.path);
   const person = subject === 'person';
   // The same photo of the same brand was already cut out: SAM is not paid twice.
-  const kept = brandCutout(hostOf(run.brief.url), hash, subject);
+  const kept = opts.fresh ? undefined : brandCutout(hostOf(run.brief.url), hash, subject);
   if (kept) {
     const flaw = await cutoutFlaw(kept.file);
     if (flaw) {
@@ -168,6 +168,8 @@ export async function cutOut(run: Run, photo: Photo, subject: string): Promise<P
   const rgb = await source.clone().removeAlpha().raw().toBuffer();
   // Trimmed to the product, so "whole and centered" means the product itself.
   await sharp(rgb, { raw: { width, height, channels: 3 } }).joinChannel(matte, { raw: { width, height, channels: 1 } }).png().toFile(file);
+  const aligned = path.join(run.dir, 'photos', `${id}-aligned.png`);
+  await copyFile(file, aligned);
   await sharp(file).trim({ threshold: 1 }).toFile(`${file}.tmp.png`).then(async () => {
     const { rename } = await import('node:fs/promises');
     await rename(`${file}.tmp.png`, file);
@@ -181,7 +183,7 @@ export async function cutOut(run: Run, photo: Photo, subject: string): Promise<P
     run.emit('status', 'designer', `The ${subject} cut out of photo ${photo.id} is ${flaw}: the photo goes whole.`);
     return undefined;
   }
-  const cut: Photo = { id, path: file, cutout: true, grounded, person, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
+  const cut: Photo = { id, path: file, cutout: true, grounded, person, aligned, note: `${subject} cut out by SAM 3.1 from photo ${photo.id}${photo.note ? ` (${photo.note})` : ''}` };
   run.photos = [...run.photos.filter((p) => p.id !== id), cut];
   return cut;
 }

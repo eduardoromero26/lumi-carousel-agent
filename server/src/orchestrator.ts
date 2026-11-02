@@ -178,7 +178,7 @@ function stateOf(slide: SlidePlan): SlideState {
   return structuredClone({ tweaks, photo, headline, body, eyebrow, button, subjectNorm, facesNorm, seen, frame, faces, subjectBox });
 }
 
-type Prepared = { photo?: Photo; keep: Box[]; focus?: { x: number; y: number } };
+type Prepared = { photo?: Photo; keep: Box[]; focus?: { x: number; y: number }; person?: string };
 type Box = { x1: number; y1: number; x2: number; y2: number };
 
 // What a slide needs before GIMP: the product cut out if the director asked and
@@ -243,18 +243,26 @@ async function prepareSlide(run: Run, slide: SlidePlan): Promise<Prepared> {
     await findSubject(run, slide, photo.path);
     slide.seen = photo.id;
   }
+  // A reference whose title stands behind the subject: the subject cut out in place, over it.
+  let person: string | undefined;
+  if (photo && !photo.cutout && !photo.backdrop && system.layout?.blocks.some((b) => b.behindSubject)) {
+    const people = !!slide.facesNorm?.length || run.assets.find((a) => a.id === photo!.asset)?.kind === 'people';
+    const known = run.photos.find((p) => p.id === `${photo!.id}c`);
+    const cut = known?.aligned ? known : await cutOut(run, photo, people ? 'person' : slide.subject || 'product', { fresh: true }).catch(() => undefined);
+    person = cut?.aligned;
+  }
   const keep = photo && !photo.cutout && !photo.backdrop ? [...(slide.subjectNorm ? [slide.subjectNorm] : []), ...(slide.facesNorm ?? [])] : [];
   const focus = keep.length
     ? { x: (Math.min(...keep.map((k) => k.x1)) + Math.max(...keep.map((k) => k.x2))) / 2, y: (Math.min(...keep.map((k) => k.y1)) + Math.max(...keep.map((k) => k.y2))) / 2 }
     : slide.focus;
-  return { photo, keep, focus };
+  return { photo, keep, focus, person };
 }
 
 // The template on a blank slide. Only inside gimp.exclusive.
-async function drawSlide(run: Run, gimp: Gimp, slide: SlidePlan, { photo, keep, focus }: Prepared): Promise<Built> {
+async function drawSlide(run: Run, gimp: Gimp, slide: SlidePlan, { photo, keep, focus, person }: Prepared): Promise<Built> {
   const system = run.system!;
   await gimp.blankSlide(system.base);
-  const built = await buildSlide(gimp, { run, system, slide, photo, avoid: keep, faces: keep.length ? slide.facesNorm : undefined, focus });
+  const built = await buildSlide(gimp, { run, system, slide, photo, avoid: keep, faces: keep.length ? slide.facesNorm : undefined, focus, person });
   if (built.photoFrame && keep.length) protectOnSlide(slide, built.photoFrame);
   else {
     slide.faces = [];

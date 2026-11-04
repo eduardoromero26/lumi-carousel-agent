@@ -133,7 +133,7 @@ export async function reviewSlide(
   };
 }
 
-export type SetReview = { consistent: boolean; score: number; slides: { n: number; fixes: FixRequest[]; templateIssues: string[] }[] };
+export type SetReview = { consistent: boolean; score: number; followsReference?: boolean; slides: { n: number; fixes: FixRequest[]; templateIssues: string[] }[] };
 
 // The whole carousel on one contact sheet: the check a slide-by-slide review can't
 // make (is it one family?).
@@ -144,7 +144,7 @@ export async function reviewSet(plan: Plan, slidePngs: { n: number; file: string
     .composite(tiles.map((input, i) => ({ input, left: 16 + i * (cell.width + 16), top: 16 })))
     .jpeg({ quality: 85 })
     .toBuffer();
-  const raw = await chatJson<{ consistent?: boolean; score?: number; slides?: { n?: unknown; fixes?: unknown; fix?: unknown }[] }>([
+  const raw = await chatJson<{ consistent?: boolean; score?: number; follows_reference?: boolean; slides?: { n?: unknown; fixes?: unknown; fix?: unknown }[] }>([
     { role: 'system', content: CRITIC_SET },
     {
       role: 'user',
@@ -166,7 +166,7 @@ export async function reviewSet(plan: Plan, slidePngs: { n: number; file: string
         imagePart(sheet.toString('base64'), 'image/jpeg'),
         ...(reference
           ? [
-              { type: 'text' as const, text: `The reference the style follows ("${reference.title}"): judge whether the set follows it.` },
+              { type: 'text' as const, text: `The reference the style follows ("${reference.title}"): judge whether the set follows it, and add "follows_reference": true or false to your JSON (false only when the set doesn't look like it, not for a slide's own defects).` },
               imagePart((await sharp(await readFile(reference.file)).resize(512, 640, { fit: 'inside' }).jpeg({ quality: 85 }).toBuffer()).toString('base64'), 'image/jpeg'),
             ]
           : []),
@@ -182,7 +182,7 @@ export async function reviewSet(plan: Plan, slidePngs: { n: number; file: string
     const parsed = parseFixRequests(Array.isArray(s.fixes) ? s.fixes : typeof s.fix === 'string' ? [s.fix] : []);
     if (parsed.fixes.length || parsed.templateIssues.length) slides.push({ n, ...parsed });
   }
-  return { consistent: raw.consistent !== false, score: raw.score ?? 0, slides, sheet };
+  return { consistent: raw.consistent !== false, score: raw.score ?? 0, followsReference: reference ? raw.follows_reference !== false : undefined, slides, sheet };
 }
 
 async function thumbnail(file: string): Promise<string> {

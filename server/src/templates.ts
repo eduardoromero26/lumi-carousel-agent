@@ -548,12 +548,15 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
     // Every slide in the same reference: a failed page is drawn once more before a template.
     const plan = run.plan;
     const reference = system.htmlRef;
+    // A keyed cutout loses the white of a white product (holes in a mattress): the page gets
+    // the original photo and frames it the way the reference does.
+    const htmlPhoto = photo?.cutout ? (run.photos.find((p) => p.id === photo.id.replace(/c$/, '') && !p.cutout) ?? photo) : photo;
     const draw = () => designHtmlSlide({
       run,
       plan,
       slide,
       reference,
-      photo: photo && { path: photo.path, cutout: !!photo.cutout && !photo.matte, note: photo.note },
+      photo: htmlPhoto && { path: htmlPhoto.path, cutout: !!htmlPhoto.cutout && !htmlPhoto.matte, note: htmlPhoto.note },
       logo: run.logo?.path,
       colors: run.brief.brandColors?.length ? run.brief.brandColors : [system.base, system.accent, system.ink],
       critique: slide.critique,

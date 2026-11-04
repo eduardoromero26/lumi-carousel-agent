@@ -12,6 +12,32 @@ import type { Plan, Run, SlidePlan } from './run.js';
 
 const exec = promisify(execFile);
 
+// The designer writes the page blind: before the screenshot, the page itself shrinks any
+// text that overflows its box, runs off the slide or lands on another text.
+const FIT = `<style>*{overflow-wrap:anywhere;hyphens:auto}</style><script>
+(function(){
+  var W=${SLIDE.width},H=${SLIDE.height},M=24;
+  function leaves(){return Array.prototype.filter.call(document.body.querySelectorAll('*'),function(e){
+    if(['SCRIPT','STYLE','IMG','SVG','svg','PATH','path'].indexOf(e.tagName)>=0)return false;
+    for(var i=0;i<e.childNodes.length;i++){var c=e.childNodes[i];if(c.nodeType===3&&c.textContent.trim())return true;}
+    return false;});}
+  function size(e){return parseFloat(getComputedStyle(e).fontSize)||16;}
+  function shrink(e){var s=size(e);if(e.__min===undefined)e.__min=s*0.5;if(s*0.93<e.__min)return false;e.style.fontSize=(s*0.93)+'px';e.style.lineHeight='1.08';return true;}
+  function bad(e){var r=e.getBoundingClientRect();if(!r.width)return false;
+    if(e.scrollWidth>e.clientWidth+2&&getComputedStyle(e).overflowX!=='visible')return true;
+    if(e.scrollWidth>e.clientWidth+2&&e.clientWidth>0&&getComputedStyle(e).whiteSpace==='nowrap')return true;
+    return r.left<M-4||r.right>W-M+4||r.bottom>H-M+4||r.top<M-4&&r.height<H/2;}
+  function hit(a,b){var p=a.getBoundingClientRect(),q=b.getBoundingClientRect();
+    return p.width&&q.width&&!a.contains(b)&&!b.contains(a)&&p.left<q.right-2&&q.left<p.right-2&&p.top<q.bottom-2&&q.top<p.bottom-2;}
+  function textRange(e){var r=document.createRange();r.selectNodeContents(e);var b=r.getBoundingClientRect();return b;}
+  function spill(e){var t=textRange(e),r=e.getBoundingClientRect();return t.right>r.right+3||t.bottom>r.bottom+3&&getComputedStyle(e).height!=='auto';}
+  for(var pass=0;pass<40;pass++){var changed=false,all=leaves();
+    for(var i=0;i<all.length;i++){var e=all[i];if(bad(e)||spill(e)){changed=shrink(e)||changed;}}
+    for(var i=0;i<all.length;i++)for(var j=i+1;j<all.length;j++){if(hit(all[i],all[j])){var a=size(all[i])>=size(all[j])?all[i]:all[j];changed=shrink(a)||changed;}}
+    if(!changed)break;}
+})();
+</script>`;
+
 export type HtmlInput = {
   run: Run;
   plan: Plan;
@@ -101,7 +127,7 @@ ${input.master.slice(0, 7000)}` : '',
   const html = (raw.match(/```(?:html)?\s*([\s\S]*?)```/)?.[1] ?? raw).trim();
   if (!/<html|<body|<div/i.test(html)) return undefined;
   const page = path.join(dir, 'index.html');
-  await writeFile(page, html);
+  await writeFile(page, /<\/body>/i.test(html) ? html.replace(/<\/body>/i, `${FIT}</body>`) : `${html}${FIT}`);
   const png = path.join(dir, 'slide.png');
   const args = [
     '--headless',

@@ -92,10 +92,31 @@ export async function runCarousel(run: Run): Promise<void> {
       // another reference from the library and the slides are drawn again, once.
       await reviewWholeSet(run, gimp, plan, built, measured, true);
       const first = run.styleRef;
-      if ((run.setScore ?? 10) < 6 && first?.by === 'agent') {
+      // It follows the reference but some slides have defects: only those are drawn again, with
+      // their notes, in the same reference. Another reference only when the look is off.
+      const named = (run.setReview?.slides ?? []).filter((s) => s.why);
+      if ((run.setScore ?? 10) < 6 && run.setReview?.followsReference !== false && named.length) {
+        run.emit('thought', 'designer', `The set follows "${first?.title ?? 'the reference'}" but ${named.length === 1 ? 'slide' : 'slides'} ${named.map((s) => s.n).join(', ')} ${named.length === 1 ? 'has' : 'have'} defects: I draw ${named.length === 1 ? 'it' : 'them'} again with the notes.`);
+        await Promise.all(
+          named.map(async (s) => {
+            const slide = plan.slides.find((p) => p.n === s.n);
+            if (!slide) return;
+            slide.critique = s.why;
+            const result = await buildAndReview(run, gimp, plan, slide, [], {});
+            built.set(slide.n, result.built);
+            measured.set(slide.n, result.measured);
+          }),
+        );
+        await reviewWholeSet(run, gimp, plan, built, measured, true);
+      } else if ((run.setScore ?? 10) < 6 && first?.by === 'agent') {
         const next = await pickReference(run, plan, [first.id]).catch(() => undefined);
         if (next) {
           run.emit('thought', 'designer', `The set scored ${run.setScore}/10 against "${first.title}": I try another reference, "${next.ref.title}". ${next.why}`, { data: { url: run.fileUrl(next.ref.file) } });
+          // The first carousel is kept: if the other reference scores lower, it comes back.
+          const before = { score: run.setScore ?? 0, slides: structuredClone(run.slides), ref: first, htmlRef: system.htmlRef, master: system.htmlMaster, notes: run.styleNotes };
+          const keep = path.join(run.dir, 'first-reference');
+          await mkdir(keep, { recursive: true });
+          for (const s of run.slides) for (const f of [s.file, s.file.replace(/\.png$/, '.xcf')]) await copyFile(path.join(run.dir, f), path.join(keep, path.basename(f))).catch(() => undefined);
           system.htmlRef = next.ref.file;
           system.htmlMaster = undefined;
           run.styleRef = { id: next.ref.id, title: next.ref.title, by: 'agent' };
@@ -107,6 +128,17 @@ export async function runCarousel(run: Run): Promise<void> {
           run.slides = [];
           await buildAll();
           await reviewWholeSet(run, gimp, plan, built, measured, true);
+          if ((run.setScore ?? 0) < before.score) {
+            for (const s of before.slides) for (const f of [s.file, s.file.replace(/\.png$/, '.xcf')]) await copyFile(path.join(keep, path.basename(f)), path.join(run.dir, f)).catch(() => undefined);
+            run.slides = before.slides;
+            run.styleRef = before.ref;
+            system.htmlRef = before.htmlRef;
+            system.htmlMaster = before.master;
+            run.styleNotes = before.notes;
+            run.setScore = before.score;
+            for (const s of run.slides) emitAdjusted(run, s.n, `Slide ${s.n} back to "${before.ref.title}"`);
+            run.emit('thought', 'designer', `"${next.ref.title}" scored lower: the carousel goes back to "${before.ref.title}" (${before.score}/10).`);
+          }
         }
       }
     } else {
@@ -839,6 +871,7 @@ async function reviewWholeSet(run: Run, gimp: Gimp, plan: Plan, built: Map<numbe
   const ref = run.styleRef ? reference(run.styleRef.id) : undefined;
   const review = await reviewSet(plan, files, run.styleNotes ?? '', ref ? { file: ref.file, title: ref.title } : undefined, run.brief.language ?? 'English');
   run.setScore = review.score;
+  run.setReview = { followsReference: review.followsReference, slides: review.slides.map((s) => ({ n: s.n, why: [describeRequests(s.fixes), ...s.templateIssues].filter(Boolean).join('; ') })) };
   const sheetFile = path.join(run.dir, 'snaps', `set-${Date.now()}.jpg`);
   await writeFile(sheetFile, review.sheet);
   const describe = (s: (typeof review.slides)[number]) =>

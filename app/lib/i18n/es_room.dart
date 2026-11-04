@@ -1,5 +1,7 @@
 // Spanish for the room area. The key is the English text exactly as in the code.
 const Map<String, String> esRoom = {
+  'Change saved: the designer makes it as soon as the carousel is done.': 'Cambio guardado: el diseñador lo hace en cuanto termine el carrusel.',
+  'The other slides are still being made: your change waits and the designer makes it when the carousel is done.': 'Las demás láminas se siguen haciendo: tu cambio espera y el diseñador lo hace cuando termine el carrusel.',
   // The team, for the demo
   'Opens the website in a headless browser, on a computer and on a phone, and reads it as a visitor sees it.': 'Abre el sitio en un navegador sin ventana, en computadora y en celular, y lo lee como lo ve un visitante.',
   'Downloads every image at full size and sorts it: logo, products, people, places, banners.': 'Descarga cada imagen en su tamaño completo y la clasifica: logo, productos, personas, lugares, banners.',

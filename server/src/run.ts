@@ -176,6 +176,9 @@ export class Run {
   styleRef?: { id: string; title: string; by: 'owner' | 'agent' };
   // The last score the set critic gave the whole carousel.
   setScore?: number;
+  // The owner's changes to finished slides while the carousel is still being made: applied
+  // one by one once it's done (GIMP is busy until then).
+  pendingEdits: { n: number; feedback: string }[] = [];
   plan?: Plan;
   // templateIssues: what the critic found that no action of the fixer resolves.
   slides: { n: number; file: string; approved: boolean; rounds: number; templateIssues?: string[] }[] = [];

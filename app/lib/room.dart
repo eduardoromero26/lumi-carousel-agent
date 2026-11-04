@@ -1576,7 +1576,19 @@ class _GimpState extends State<_Gimp> {
 
   void tell(String text) => ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text), duration: const Duration(seconds: 4)));
 
+  // A finished slide while the rest is being made: the change waits for the carousel.
+  bool get canQueue => !widget.canEdit && widget.busy && widget.slide.done;
+
   Future<void> send(String feedback) async {
+    if (canQueue) {
+      try {
+        await Api.editSlide(widget.runId, widget.slide.n, feedback);
+        tell('Change saved: the designer makes it as soon as the carousel is done.'.tr);
+      } catch (e) {
+        tell('$e'.replaceFirst('Exception: ', ''));
+      }
+      return;
+    }
     if (!widget.canEdit) {
       tell('You can change the slides once the carousel is ready and GIMP is free (pause the queue).'.tr);
       return;
@@ -1628,7 +1640,7 @@ class _GimpState extends State<_Gimp> {
       ])
         if (field == 'headline' || '${plan?[field] ?? ''}'.trim().isNotEmpty) (field, label, icon, '${plan?[field] ?? ''}'),
     ];
-    final ready = widget.canEdit;
+    final ready = widget.canEdit || canQueue;
     final pick = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1636,7 +1648,11 @@ class _GimpState extends State<_Gimp> {
         title: _DialogHeader(
           kicker: 'Slide {n}'.trf({'n': widget.slide.n.toString().padLeft(2, '0')}).toUpperCase(),
           title: 'What do you want to change?'.tr,
-          text: ready ? 'The designer redraws the slide with your change.'.tr : 'You can change the slides once the carousel is ready and GIMP is free (pause the queue).'.tr,
+          text: canQueue
+              ? 'The other slides are still being made: your change waits and the designer makes it when the carousel is done.'.tr
+              : ready
+                  ? 'The designer redraws the slide with your change.'.tr
+                  : 'You can change the slides once the carousel is ready and GIMP is free (pause the queue).'.tr,
         ),
         content: SizedBox(
           width: 480,

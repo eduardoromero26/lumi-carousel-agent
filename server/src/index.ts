@@ -236,6 +236,14 @@ const server = http.createServer(async (req, res) => {
     // POST /api/runs/:id/slides/:n/edit {feedback}
     if (req.method === 'POST' && parts[3] === 'slides' && parts[5] === 'edit') {
       if (!run) return json(res, 404, { error: 'Run not found' });
+      // A finished slide of the carousel being made: the change waits for the carousel.
+      if (run.status !== 'done' && current === run.id && run.slides.some((s) => s.n === Number(parts[4]))) {
+        const { feedback } = (await readJson(req)) as { feedback?: string };
+        if (!feedback?.trim()) return json(res, 400, { error: 'Tell the designer what to change' });
+        run.pendingEdits.push({ n: Number(parts[4]), feedback: feedback.trim() });
+        run.emit('status', 'owner', `Change queued for slide ${parts[4]}: ${feedback.trim()}`, { slide: Number(parts[4]) });
+        return json(res, 202, { ...run.summary(), queued: true });
+      }
       if (run.status !== 'done') return json(res, 409, { error: 'The carousel is not finished yet' });
       if (busy) return json(res, 409, { error: 'Another carousel is being made.' });
       const { feedback } = (await readJson(req)) as { feedback?: string };
@@ -322,12 +330,21 @@ const server = http.createServer(async (req, res) => {
 // failing every website left in the batch.
 let gimpFailures = 0;
 
+// The owner's changes queued while the carousel was being made, one after another.
+async function applyPendingEdits(run: Run): Promise<void> {
+  while (run.status === 'done' && run.pendingEdits.length) {
+    const next = run.pendingEdits.shift()!;
+    await editSlide(run, next.n, next.feedback).catch((error: Error) => console.error(error));
+  }
+}
+
 function start(run: Run, item?: QueueItem): void {
   busy = true;
   current = run.id;
   // A carousel from Create goes on to its 30 s reel (REELS=1); the queue's mass runs don't.
   const reel = () => (config.reels && !item && run.status === 'done' && run.slides.length ? animateCarousel(run, { cards: false }) : undefined);
   void runCarousel(run)
+    .then(() => applyPendingEdits(run))
     .then(reel)
     .catch((error: Error) => console.error(error))
     .finally(() => {

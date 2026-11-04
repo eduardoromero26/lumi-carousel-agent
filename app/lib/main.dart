@@ -214,6 +214,8 @@ class _HomeShellState extends State<HomeShell> {
 }
 
 const kodemexUrl = 'https://kodemex.com.mx';
+// Lumi, where the business posts and schedules what the agents made.
+const lumiUrl = 'https://lumi.kodemex.com.mx';
 
 // EN | ES in the header: the whole UI changes language and the choice is remembered.
 class LanguageToggle extends StatelessWidget {
@@ -1612,6 +1614,11 @@ class _DoneCard extends StatelessWidget {
             icon: const Icon(Icons.download_rounded, size: 18),
             label: Text('Download everything (ZIP)'.tr),
             onPressed: () => _download(Api.fileUrl('/api/runs/$runId/download')),
+          ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.send_rounded, size: 16),
+            label: Text('Post from Lumi'.tr),
+            onPressed: () => web.window.open(lumiUrl, '_blank'),
           ),
           OutlinedButton.icon(
             icon: const Icon(Icons.copy_rounded, size: 16),

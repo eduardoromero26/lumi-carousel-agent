@@ -4,6 +4,7 @@ const Map<String, String> esMain = {
   'Create': 'Crear',
   'Feed': 'Feed',
   'Community': 'Comunidad',
+  'Post from Lumi': 'Publicar desde Lumi',
   'Open source · Powered by ': 'Código abierto · Hecho por ',
   'Close': 'Cerrar',
 

@@ -1,5 +1,12 @@
 // Spanish for the room area. The key is the English text exactly as in the code.
 const Map<String, String> esRoom = {
+  // The ready modal and the download during the run
+  'Download': 'Descargar',
+  'READY': 'LISTO',
+  'Download the images and the caption, or post them from Lumi.': 'Descarga las imágenes y el texto, o publícalas desde Lumi.',
+  'Download the images (ZIP)': 'Descargar las imágenes (ZIP)',
+  'Post from Lumi': 'Publicar desde Lumi',
+  'Confirm': 'Confirmar',
   'Team chat': 'Chat del equipo',
   // The team
   'Analyst': 'Analista',

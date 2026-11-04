@@ -10,7 +10,7 @@ import 'package:web/web.dart' as web;
 
 import 'api.dart';
 import 'i18n.dart';
-import 'main.dart' show mono, showBig;
+import 'main.dart' show lumiUrl, mono, showBig;
 
 // Design it live: a run told from the agents' side. The team lights up as each agent
 // works, the slide is built in GIMP (its real layers, read from the .xcf), the critic is
@@ -673,8 +673,19 @@ class _RoomState extends State<_Room> {
     }
     final edit = editing;
     if (edit != null && all.length > edit.from && ((e.type == 'slide' && e.slide == edit.slide) || e.type == 'error')) editing = null;
+    // The carousel just finished while the owner watched (not a replay, not a slide edit):
+    // the ready modal, with the images and the way to post them.
+    final data = e.data;
+    if (!readyShown && widget.live && e.type == 'done' && !(data is Map && data['edited'] != null) && e.at != null && DateTime.now().difference(e.at!).inMinutes < 3) {
+      readyShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showReady(context, widget.runId, _View(all));
+      });
+    }
     setState(() {});
   }
+
+  bool readyShown = false;
 
   // The replay's clock: the run's own gaps, the long waits on the models cut to 5 s.
   Duration next(int i) {
@@ -792,6 +803,8 @@ class _RoomState extends State<_Room> {
       toggle: null,
       onBack: widget.onBack,
       onExit: widget.onExit,
+      // The slides made so far, at any point of the run.
+      onDownload: v.slides.values.any((s) => s.done) ? () => _saveFile(Api.fileUrl('/api/runs/${widget.runId}/download')) : null,
     );
     final progress = _Progress(view: v);
     final busyNow = liveNow || editing != null || (!v.finished && v.error == null && shown < all.length);
@@ -889,9 +902,10 @@ class _RoomState extends State<_Room> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.name, required this.url, required this.logo, required this.status, required this.replay, required this.toggle, required this.onBack, this.onExit, this.spend, this.onStop, this.started, this.until});
+  const _Header({required this.name, required this.url, required this.logo, required this.status, required this.replay, required this.toggle, required this.onBack, this.onExit, this.spend, this.onStop, this.started, this.until, this.onDownload});
   // Tokens and dollars spent so far; the stop button while the agents work.
   final (int, double?)? spend;
+  final VoidCallback? onDownload;
   final DateTime? started;
   // Null while live: the timer keeps counting.
   final DateTime? until;
@@ -962,6 +976,16 @@ class _Header extends StatelessWidget {
                     style: mono(size: 12, color: _C.text, weight: FontWeight.w700),
                   ),
                 ]),
+              ),
+            if (onDownload != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: OutlinedButton.icon(
+                  onPressed: onDownload,
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 36)),
+                  icon: const Icon(Icons.download_rounded, size: 18),
+                  label: Text('Download'.tr),
+                ),
               ),
             if (onStop != null)
               OutlinedButton.icon(
@@ -3438,6 +3462,72 @@ class _DialogHeader extends StatelessWidget {
           if (onClose != null) IconButton(tooltip: 'Close'.tr, onPressed: onClose, icon: const Icon(Icons.close_rounded, color: _C.muted)),
         ]),
       );
+}
+
+// One file through a link: opening several windows gets all but the first blocked.
+void _saveFile(String url) {
+  final a = web.HTMLAnchorElement()
+    ..href = url
+    ..download = '';
+  web.document.body!.append(a);
+  a.click();
+  a.remove();
+}
+
+// The carousel is ready: its slides, the images to download and the way to post them.
+void _showReady(BuildContext context, String runId, _View view) {
+  final slides = [for (final n in view.order) view.slides[n]!].where((s) => (s.url ?? '').isNotEmpty).toList();
+  showDialog<void>(
+    context: context,
+    builder: (context) => Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _DialogHeader(
+            kicker: 'READY'.tr,
+            title: 'Your carousel is ready'.tr,
+            text: 'Download the images and the caption, or post them from Lumi.'.tr,
+            onClose: () => Navigator.pop(context),
+          ),
+          SizedBox(
+            height: 210,
+            child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 24), children: [
+              for (final s in slides)
+                Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(10), child: AspectRatio(aspectRatio: 4 / 5, child: _Net(s.url!, fit: BoxFit.cover))),
+                ),
+            ]),
+          ),
+          if ((view.caption ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+              child: Text(view.caption!, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: _C.muted, height: 1.45)),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 18, 24, 22),
+            child: Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.end, children: [
+              OutlinedButton.icon(
+                onPressed: () => _saveFile(Api.fileUrl('/api/runs/$runId/download')),
+                icon: const Icon(Icons.download_rounded, size: 18),
+                label: Text('Download the images (ZIP)'.tr),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => web.window.open(lumiUrl, '_blank'),
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: Text('Post from Lumi'.tr),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: Text('Confirm'.tr),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    ),
+  );
 }
 
 String _hostOf(String? url) => (Uri.tryParse(url ?? '')?.host ?? '').replaceFirst(RegExp(r'^www\.'), '');

@@ -96,6 +96,11 @@ class Api {
     }
   }
 
+  // The owner started changing the plan: the design waits for their approval.
+  static Future<void> holdPlan(String runId) async {
+    await http.post(Uri.parse('$apiUrl/api/runs/$runId/plan/hold'));
+  }
+
   // The owner writes to the director in the team chat.
   static Future<void> chat(String runId, String text) async {
     final res = await http.post(

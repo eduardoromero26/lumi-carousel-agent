@@ -161,6 +161,8 @@ export class Run {
   interactive = false;
   // While the plan waits for the owner: hands the owner's review to the pipeline.
   planReview?: (review: PlanReview | null) => void;
+  // Once the owner starts changing the plan: it waits for their approval.
+  planHold?: () => void;
   logo?: Asset;
   // White or light version of the logo, for dark backgrounds.
   logoLight?: Asset;

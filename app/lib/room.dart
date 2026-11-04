@@ -3936,6 +3936,14 @@ class _PlanBoardState extends State<_PlanBoard> {
   Timer? tick;
   bool sent = false;
   String? error;
+  // The first change asks the server to wait for the owner's approval instead of the clock.
+  bool held = false;
+
+  void hold() {
+    if (held || !reviewing) return;
+    held = true;
+    Api.holdPlan(widget.runId).catchError((Object _) {});
+  }
 
   @override
   void initState() {
@@ -4046,7 +4054,12 @@ class _PlanBoardState extends State<_PlanBoard> {
                             onTap: () {
                               final asset = (widget.view.site?['assets'] as List?)?.whereType<Map>().where((a) => a['id'] == p.asset).firstOrNull;
                               showAsset(context, asset ?? {'url': p.url, 'kind': p.cutout ? 'cut out' : 'photo', 'description': p.note, 'id': p.asset}, widget.excluded.contains(p.asset),
-                                  reviewing && p.asset.isNotEmpty ? () => widget.onToggle(p.asset) : null);
+                                  reviewing && p.asset.isNotEmpty
+                                      ? () {
+                                          hold();
+                                          widget.onToggle(p.asset);
+                                        }
+                                      : null);
                             },
                           ),
                           if (widget.excluded.contains(p.asset)) const Positioned(right: 2, top: 2, child: Icon(Icons.block_rounded, size: 16, color: _C.bad)),
@@ -4068,9 +4081,18 @@ class _PlanBoardState extends State<_PlanBoard> {
                   editable: reviewing,
                   removed: removed.contains(sl['n']),
                   canRemove: slides.length - removed.length > 3,
-                  onPick: () => pick(sl['n'] as int),
-                  onEdit: (field, value) => (edits[sl['n'] as int] ??= {})[field] = value,
-                  onRemove: () => setState(() => removed.contains(sl['n']) ? removed.remove(sl['n']) : removed.add(sl['n'] as int)),
+                  onPick: () {
+                    hold();
+                    pick(sl['n'] as int);
+                  },
+                  onEdit: (field, value) {
+                    hold();
+                    (edits[sl['n'] as int] ??= {})[field] = value;
+                  },
+                  onRemove: () {
+                    hold();
+                    setState(() => removed.contains(sl['n']) ? removed.remove(sl['n']) : removed.add(sl['n'] as int));
+                  },
                 ),
             ]),
           ]),
@@ -4080,11 +4102,12 @@ class _PlanBoardState extends State<_PlanBoard> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             decoration: BoxDecoration(color: _C.violet.withValues(alpha: 0.06), border: const Border(top: BorderSide(color: _C.line))),
             child: Row(children: [
-              _Pill(text: 'Design starts in {time}'.trf({'time': '${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}'}), color: _C.violet, blink: true),
+              _Pill(text: held ? 'Waiting for your approval'.tr : 'Design starts in {time}'.trf({'time': '${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}'}), color: _C.violet, blink: true),
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
                   controller: note,
+                  onChanged: (_) => hold(),
                   style: const TextStyle(fontSize: 13),
                   decoration: InputDecoration(
                     isDense: true,

@@ -198,6 +198,13 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { votes: votesOf(run.id), stars: starsOf(run.id) });
     }
 
+    // POST /api/runs/:id/plan/hold: the owner started changing the plan, it waits for them
+    if (req.method === 'POST' && parts[3] === 'plan' && parts[4] === 'hold') {
+      if (!run?.planReview) return json(res, 409, { error: 'The plan can no longer change: the design has started.' });
+      run.planHold?.();
+      return json(res, 202, run.summary());
+    }
+
     // POST /api/runs/:id/plan {slides, note}: the owner's changes to the plan, while it waits
     if (req.method === 'POST' && parts[3] === 'plan') {
       if (!run?.planReview) return json(res, 409, { error: 'The plan can no longer change: the design has started.' });

@@ -41,6 +41,7 @@ export async function runCarousel(run: Run): Promise<void> {
     if (!run.photos.length && !run.site) throw new Error('No photos and no website to work with.');
     const plan = await planCarousel(run);
     run.plan = plan;
+    productFirst(run, plan);
     run.emit('thought', 'director', `${plan.format ? `${plan.format} for a ${plan.business_type ?? 'business'}: ` : ''}${plan.concept}\n\n${plan.why}`, { data: plan });
     await ownerReviewsPlan(run, plan);
 
@@ -97,9 +98,45 @@ export async function runCarousel(run: Run): Promise<void> {
   });
 }
 
+// A business that sells a product shows it: the director put Luuna's ambassadors (athletes
+// with no mattress) on the hook and the close of a mattress store (689f6bdd), against its
+// own rule. Photos of people without the product stay only on one proof slide; the other
+// slides take free product photos, the ones that name what the business sells first.
+export function productFirst(run: Run, plan: Plan): void {
+  const assetOf = (id: string | null) => run.assets.find((a) => a.id === run.photos.find((p) => p.id === id)?.asset);
+  const products = run.photos.filter((p) => !p.backdrop && !p.cutout && run.assets.find((a) => a.id === p.asset)?.kind === 'product');
+  if (products.length < 3) return;
+  const words = `${plan.business_type ?? ''}`
+    .toLowerCase()
+    .split(/[^a-z\u00e0-\u00ff]+/)
+    .filter((w) => w.length >= 4 && !['store', 'shop', 'tienda', 'with', 'online', 'brand', 'company'].includes(w))
+    .map((w) => w.replace(/(es|s)$/, ''));
+  const names = (text: string | undefined) => words.some((w) => (text ?? '').toLowerCase().includes(w));
+  let proofKept = false;
+  const swapped: number[] = [];
+  for (const slide of plan.slides) {
+    const asset = assetOf(slide.photo);
+    if (!slide.photo || asset?.kind !== 'people' || names(asset.description)) continue;
+    if (slide.role === 'proof' && !proofKept) {
+      proofKept = true;
+      continue;
+    }
+    const used = new Set(plan.slides.map((s) => s.photo));
+    const free = products.filter((p) => !used.has(p.id));
+    const pick = free.find((p) => names(run.assets.find((a) => a.id === p.asset)?.description)) ?? free[0];
+    if (!pick) break;
+    slide.photo = pick.id;
+    swapped.push(slide.n);
+  }
+  if (swapped.length) {
+    run.emit('status', 'director', `${swapped.length === 1 ? 'Slide' : 'Slides'} ${swapped.join(', ')} showed people without the product: ${swapped.length === 1 ? 'it takes' : 'they take'} a product photo, as a store shows what it sells.`);
+  }
+}
+
 // From Create, the plan waits for the owner a moment: the words, the photo of each slide and
 // how many slides. Nothing in that time and the design starts on its own, as from the queue.
 const PLAN_WAIT_MS = Number(process.env.PLAN_WAIT_S ?? 90) * 1000;
+const PLAN_HOLD_MS = 10 * 60 * 1000;
 
 async function ownerReviewsPlan(run: Run, plan: Plan): Promise<void> {
   if (!run.interactive) return;
@@ -107,10 +144,21 @@ async function ownerReviewsPlan(run: Run, plan: Plan): Promise<void> {
     data: { planWait: { until: Date.now() + PLAN_WAIT_MS } },
   });
   const review = await new Promise<PlanReview | null>((resolve) => {
-    run.planReview = resolve;
-    setTimeout(() => resolve(null), PLAN_WAIT_MS);
+    let timer = setTimeout(() => resolve(null), PLAN_WAIT_MS);
+    run.planReview = (r) => {
+      clearTimeout(timer);
+      resolve(r);
+    };
+    // The owner started changing it: the design waits for their approval, not for the clock.
+    run.planHold = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => resolve(null), PLAN_HOLD_MS);
+      run.planHold = undefined;
+      run.emit('status', 'director', 'You are changing the plan: the design waits for your approval.', { data: { planWait: { until: Date.now() + PLAN_HOLD_MS } } });
+    };
   });
   run.planReview = undefined;
+  run.planHold = undefined;
   if (!review) {
     run.emit('status', 'director', 'No changes from you: the design starts.', { data: { planWait: { done: true } } });
     return;

@@ -545,20 +545,24 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
   // The reference imitated in HTML: every object it has, drawn; the slide comes into GIMP as
   // one layer. Off with HTML_SLIDES=0; any failure falls back to the plan and the templates.
   if (system.htmlRef && process.env.HTML_SLIDES !== '0' && run.plan) {
-    const made = await designHtmlSlide({
+    // Every slide in the same reference: a failed page is drawn once more before a template.
+    const plan = run.plan;
+    const reference = system.htmlRef;
+    const draw = () => designHtmlSlide({
       run,
-      plan: run.plan,
+      plan,
       slide,
-      reference: system.htmlRef,
+      reference,
       photo: photo && { path: photo.path, cutout: !!photo.cutout && !photo.matte, note: photo.note },
       logo: run.logo?.path,
       colors: run.brief.brandColors?.length ? run.brief.brandColors : [system.base, system.accent, system.ink],
       critique: slide.critique,
-      master: slide.n === run.plan.slides[1]?.n ? undefined : system.htmlMaster,
+      master: slide.n === plan.slides[1]?.n ? undefined : system.htmlMaster,
       decor: { backdrop: system.decor?.backdropFile, texture: system.decor?.textureFile, element: system.decor?.elementFile },
     }).catch(() => undefined);
+    const made = (await draw()) ?? (await draw());
     if (made) {
-      if (slide.n === run.plan.slides[1]?.n) system.htmlMaster = made.html;
+      if (slide.n === plan.slides[1]?.n) system.htmlMaster = made.html;
       await gimp.python(`_img = Gimp.get_images()[0]
 ${LIB}
 for _old in [_l for _l in _img.get_layers() if _l.get_name() != 'Background']:

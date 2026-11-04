@@ -39,7 +39,21 @@ export async function runCarousel(run: Run): Promise<void> {
   run.slides = [];
   run.startedAt = Date.now();
   await withGimp(run, async (gimp) => {
-    if (run.brief.url && !run.site) await readWebsite(run);
+    // Reading the website has a limit: a site that hangs stops the run instead of stalling it.
+    if (run.brief.url && !run.site) {
+      let timer: NodeJS.Timeout | undefined;
+      await Promise.race([
+        readWebsite(run),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("The website took more than 4 minutes to read: the run stops here. Try again, or another page of the business's site.")), READ_LIMIT_MS);
+        }),
+      ]).finally(() => clearTimeout(timer));
+    }
+    // If it can't read the website, it doesn't go on: no usable photo, no carousel of thumbnails.
+    const usable = run.assets.filter((a) => a.kind !== 'logo' && a.kind !== 'icon' && Math.min(a.width, a.height) >= 400);
+    if (run.brief.url && !usable.length) {
+      throw new Error("I couldn't read a usable photo from this website (none, or only small thumbnails, maybe behind a login). The run stops here: try the business's own website.");
+    }
     if (!run.photos.length && !run.site) throw new Error('No photos and no website to work with.');
     const plan = await planCarousel(run);
     run.plan = plan;
@@ -167,6 +181,8 @@ export async function runCarousel(run: Run): Promise<void> {
 // with no mattress) on the hook and the close of a mattress store (689f6bdd), against its
 // own rule. Photos of people without the product stay only on one proof slide; the other
 // slides take free product photos, the ones that name what the business sells first.
+const READ_LIMIT_MS = 4 * 60_000;
+
 // A carousel has a time budget (RUN_BUDGET_MIN, 10 by default): past half of it no more
 // critic rounds, past 70 % it is delivered as it is. A run never takes 16 minutes again.
 const BUDGET_MS = Number(process.env.RUN_BUDGET_MIN ?? 10) * 60_000;

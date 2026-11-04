@@ -53,6 +53,10 @@ const server = http.createServer(async (req, res) => {
       if (!body.brief?.url && !body.brief?.business) return json(res, 400, { error: 'Add your website' });
       if (!body.brief.url && !body.brief.goal) return json(res, 400, { error: 'Without a website, tell us what the post should do' });
       if (body.brief.url && !/^https?:\/\//i.test(body.brief.url)) body.brief.url = `https://${body.brief.url}`;
+      // Social pages ask to log in: the agents would only see a login wall and thumbnails.
+      if (body.brief.url && /(^|\.)(facebook\.com|fb\.com|instagram\.com|tiktok\.com|x\.com|twitter\.com|linkedin\.com)$/i.test(new URL(body.brief.url).hostname)) {
+        return json(res, 400, { error: "Social media pages ask to log in, so the agents can only see a login wall. Use the business's own website (it is usually linked on its page)." });
+      }
       if (body.brief.reference && !reference(body.brief.reference)) return json(res, 400, { error: 'That style is no longer in the gallery' });
       const run = new Run(body.brief);
       // From Create: the owner reviews the plan before the design starts.

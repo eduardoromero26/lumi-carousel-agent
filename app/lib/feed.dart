@@ -742,6 +742,8 @@ void _openPost(BuildContext context, Map<String, dynamic> post) {
     builder: (context) => Dialog(
       insetPadding: const EdgeInsets.all(16),
       backgroundColor: Colors.transparent,
+      // The post card has its own frame.
+      shape: const RoundedRectangleBorder(),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: SingleChildScrollView(child: PostCard(post: post)),
@@ -757,6 +759,8 @@ void _openReel(BuildContext context, Map<String, dynamic> post) {
     builder: (context) => Dialog(
       backgroundColor: Colors.black,
       insetPadding: const EdgeInsets.all(16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      clipBehavior: Clip.antiAlias,
       child: Stack(children: [
         SizedBox(
           width: 400,

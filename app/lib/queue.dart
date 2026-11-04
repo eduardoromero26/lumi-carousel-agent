@@ -450,7 +450,7 @@ Future<({int? stars, String note})?> _askVerdict(BuildContext context, String ba
               autofocus: true,
               minLines: 4,
               maxLines: 10,
-              decoration: const InputDecoration(hintText: 'e.g. Shorter headlines, more of the brand color, never beige, products cut out instead of in boxes…', border: OutlineInputBorder()),
+              decoration: const InputDecoration(hintText: 'e.g. Shorter headlines, more of the brand color, never beige, products cut out instead of in boxes…'),
             ),
           ]),
         ),

@@ -85,6 +85,21 @@ class CarouselAgentApp extends StatelessWidget {
           side: const BorderSide(color: Palette.border),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
+        // Every modal as Lumi's: white, a thin border, no Material tint or shadow.
+        dialogTheme: DialogThemeData(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          elevation: 0,
+          barrierColor: const Color(0x991B1540),
+          insetPadding: const EdgeInsets.all(24),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: Palette.border)),
+          titleTextStyle: GoogleFonts.plusJakartaSans(fontSize: 19, fontWeight: FontWeight.w800, color: Palette.ink, letterSpacing: -0.2),
+          contentTextStyle: GoogleFonts.plusJakartaSans(fontSize: 14, color: Palette.ink, height: 1.45),
+          actionsPadding: const EdgeInsets.fromLTRB(24, 4, 24, 20),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(minimumSize: const Size(0, 44), padding: const EdgeInsets.symmetric(horizontal: 16), shape: rounded, foregroundColor: Palette.muted, textStyle: label),
+        ),
       ),
       // ?view=room: the agents' room, a screen of its own for watching a run.
       home: Uri.base.queryParameters['view'] == 'room' ? const RoomPage() : const HomeShell(),

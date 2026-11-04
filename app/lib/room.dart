@@ -1553,14 +1553,15 @@ class _GimpState extends State<_Gimp> {
     final text = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Change the ${field == 'button' ? 'button' : field} of slide ${widget.slide.n}'),
+        titlePadding: EdgeInsets.zero,
+        title: _DialogHeader(kicker: 'SLIDE ${widget.slide.n.toString().padLeft(2, '0')} · ${field.toUpperCase()}', title: 'Change the ${field == 'button' ? 'button' : field}', text: 'The designer rebuilds the slide in GIMP with your words, exactly as you write them.'),
         content: SizedBox(
-          width: 420,
-          child: TextField(controller: controller, autofocus: true, maxLines: 3, minLines: 1, decoration: const InputDecoration(border: OutlineInputBorder())),
+          width: 480,
+          child: TextField(controller: controller, autofocus: true, maxLines: 4, minLines: 2, style: const TextStyle(fontSize: 15, color: _C.text, height: 1.4)),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Send to the designer')),
+          FilledButton.icon(onPressed: () => Navigator.pop(context, controller.text.trim()), icon: const Icon(Icons.send_rounded, size: 18), label: const Text('Send to the designer')),
         ],
       ),
     );
@@ -3382,6 +3383,34 @@ List<_RunPhoto> _websiteChoices(List<_RunPhoto> photos, Map? site, {Set<String> 
   ];
 }
 
+// The top of every modal in the room: what it's about in violet, the title and a line.
+class _DialogHeader extends StatelessWidget {
+  const _DialogHeader({required this.kicker, required this.title, this.text, this.onClose});
+  final String kicker;
+  final String title;
+  final String? text;
+  final VoidCallback? onClose;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: EdgeInsets.fromLTRB(24, 20, onClose == null ? 24 : 12, 12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(kicker, style: mono(size: 11, color: _C.violet, weight: FontWeight.w800, spacing: 0.6)),
+              const SizedBox(height: 4),
+              Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _C.text, letterSpacing: -0.2)),
+              if (text != null) ...[
+                const SizedBox(height: 4),
+                Text(text!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w400, color: _C.muted, height: 1.4)),
+              ],
+            ]),
+          ),
+          if (onClose != null) IconButton(tooltip: 'Close', onPressed: onClose, icon: const Icon(Icons.close_rounded, color: _C.muted)),
+        ]),
+      );
+}
+
 String _hostOf(String? url) => (Uri.tryParse(url ?? '')?.host ?? '').replaceFirst(RegExp(r'^www\.'), '');
 
 // The photo for a slide: everything from the website in one grid, the one in use marked.
@@ -3398,23 +3427,11 @@ Future<String?> _pickPhotoDialog(BuildContext context, {required int slide, requ
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: 860, maxHeight: size.height * 0.86),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 20, 12, 16),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text('SLIDE ${slide.toString().padLeft(2, '0')}', style: mono(size: 11, color: _C.violet, weight: FontWeight.w800, spacing: 0.6)),
-                  const SizedBox(height: 4),
-                  const Text('Choose its photo', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _C.text, letterSpacing: -0.2)),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${choices.length} ${choices.length == 1 ? 'image' : 'images'} from ${host.isEmpty ? 'the website' : host}. The designer rebuilds the slide with the one you pick.',
-                    style: const TextStyle(fontSize: 13, color: _C.muted, height: 1.4),
-                  ),
-                ]),
-              ),
-              IconButton(tooltip: 'Close', onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded, color: _C.muted)),
-            ]),
+          _DialogHeader(
+            kicker: 'SLIDE ${slide.toString().padLeft(2, '0')}',
+            title: 'Choose its photo',
+            text: '${choices.length} ${choices.length == 1 ? 'image' : 'images'} from ${host.isEmpty ? 'the website' : host}. The designer rebuilds the slide with the one you pick.',
+            onClose: () => Navigator.pop(context),
           ),
           const Divider(height: 1, color: _C.line),
           Flexible(
@@ -4080,14 +4097,17 @@ void showAsset(BuildContext context, Map asset, bool leftOut, VoidCallback? onTo
     builder: (context) => StatefulBuilder(builder: (context, setDialog) {
       var out = leftOut;
       return AlertDialog(
-        contentPadding: const EdgeInsets.all(16),
+        titlePadding: EdgeInsets.zero,
+        title: _DialogHeader(kicker: 'FROM THE WEBSITE', title: 'An image the analyst found', onClose: () => Navigator.pop(context)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
         content: SizedBox(
           width: 760,
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Expanded(
               flex: 3,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+              child: Container(
+                decoration: BoxDecoration(color: _C.raised, borderRadius: BorderRadius.circular(12), border: Border.all(color: _C.line)),
+                clipBehavior: Clip.antiAlias,
                 child: ConstrainedBox(constraints: const BoxConstraints(maxHeight: 520), child: _Net('${asset['url']}', fit: BoxFit.contain)),
               ),
             ),
@@ -4143,7 +4163,6 @@ void showAsset(BuildContext context, Map asset, bool leftOut, VoidCallback? onTo
             ),
           ]),
         ),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
       );
     }),
   );

@@ -186,6 +186,13 @@ class _QueuePageState extends State<QueuePage> {
               ]),
               if (error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(error!, style: const TextStyle(color: Palette.danger))),
               const SizedBox(height: 8),
+              // Loading: nothing came back yet and nothing failed.
+              if (s == null && error == null) const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
+              if (s == null && error != null)
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(child: OutlinedButton.icon(onPressed: load, icon: const Icon(Icons.refresh, size: 18), label: const Text('Try again'))),
+                ),
               if (s != null && batches.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('Nothing in the queue yet.'))),
               for (final b in batches) ...[
                 _BatchCard(

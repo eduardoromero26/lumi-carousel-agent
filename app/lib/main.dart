@@ -325,11 +325,26 @@ class _StudioPageState extends State<StudioPage> {
     loadStyles();
   }
 
+  // The gallery's own state: loading, or why it could not load (the server is down).
+  bool stylesLoading = true;
+  String? stylesError;
+
   Future<void> loadStyles() async {
+    // From initState it is already loading; a retry shows the spinner again.
+    if (!stylesLoading) {
+      setState(() {
+        stylesLoading = true;
+        stylesError = null;
+      });
+    }
     try {
       final list = await Api.references();
       if (mounted) setState(() => styles = list);
-    } catch (_) {}
+    } catch (e) {
+      if (mounted) setState(() => stylesError = '$e'.replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => stylesLoading = false);
+    }
   }
 
   void chooseStyle(String? id) => setState(() => reference = id);
@@ -1791,6 +1806,17 @@ class _Start extends StatelessWidget {
               ]),
               if (s.error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(s.error!, style: const TextStyle(color: Palette.danger))),
               const SizedBox(height: 20),
+              if (s.stylesLoading) const Padding(padding: EdgeInsets.only(bottom: 12), child: LinearProgressIndicator(minHeight: 3)),
+              if (s.stylesError != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Row(children: [
+                    const Icon(Icons.error_outline_rounded, size: 18, color: Palette.danger),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text("The style gallery didn't load: ${s.stylesError}", style: const TextStyle(color: Palette.danger))),
+                    TextButton.icon(onPressed: s.loadStyles, icon: const Icon(Icons.refresh, size: 18), label: const Text('Try again')),
+                  ]),
+                ),
               StyleGallery(styles: s.styles, selected: s.reference, uploading: s.uploading, onSelect: s.chooseStyle, onUpload: s.uploadStyles, onDelete: s.deleteStyle),
             ]),
           ),

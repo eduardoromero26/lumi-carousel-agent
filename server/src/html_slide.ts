@@ -25,6 +25,8 @@ export type HtmlInput = {
   critique?: string;
   // The carousel's master slide, already designed: this one keeps its system.
   master?: string;
+  // The art director's decor kit from Muse Image, paid once per carousel.
+  decor?: { backdrop?: string; texture?: string; element?: string };
 };
 
 const jpeg = async (file: string, size: number) => (await sharp(file).rotate().resize(size, size, { fit: 'inside' }).flatten({ background: '#ffffff' }).jpeg({ quality: 82 }).toBuffer()).toString('base64');
@@ -49,6 +51,20 @@ export async function designHtmlSlide(input: HtmlInput): Promise<{ png: string; 
   if (input.logo) {
     await copyFile(input.logo, path.join(dir, 'logo.png'));
     files.push("logo.png: the brand's logo (keep its proportions; where the reference has its logo)");
+  }
+  // The decor kit: optional, where the reference has that kind of ground or object.
+  const kit: [keyof NonNullable<HtmlInput['decor']>, string][] = [
+    ['backdrop', 'a scene the art director generated for this carousel: the ground of a slide without a photo, or the set a cut-out product stands in; softened so the text reads'],
+    ['texture', "a texture of the brand's world: on a ground or a panel where the reference has a textured or plain area, faint so the text reads"],
+    ['element', 'a decorative object on a transparent background: once, where the reference has a decorative object, small, never over the text, the logo or a face'],
+  ];
+  const decor: [string, string][] = [];
+  for (const [key, use] of kit) {
+    const file = input.decor?.[key];
+    if (!file || !existsSync(file)) continue;
+    await copyFile(file, path.join(dir, `${key}.png`));
+    files.push(`${key}.png (optional, never the main photo): ${use}`);
+    decor.push([`${key}.png`, file]);
   }
   const texts = [
     slide.eyebrow ? `label: "${slide.eyebrow}"` : '',
@@ -76,6 +92,7 @@ ${input.master.slice(0, 7000)}` : '',
   ];
   if (input.photo) parts.push({ type: 'text', text: `${photoName}:` }, imagePart(await jpeg(input.photo.path, 640), 'image/jpeg'));
   if (input.logo) parts.push({ type: 'text', text: 'logo.png:' }, imagePart(await jpeg(input.logo, 320), 'image/jpeg'));
+  for (const [name, file] of decor) parts.push({ type: 'text', text: `${name}:` }, imagePart(await jpeg(file, 256), 'image/jpeg'));
   const answer = await chat([
     { role: 'system', content: HTML_DESIGNER },
     { role: 'user', content: parts },

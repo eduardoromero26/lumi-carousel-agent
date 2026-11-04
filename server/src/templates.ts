@@ -555,6 +555,7 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
       colors: run.brief.brandColors?.length ? run.brief.brandColors : [system.base, system.accent, system.ink],
       critique: slide.critique,
       master: slide.n === run.plan.slides[1]?.n ? undefined : system.htmlMaster,
+      decor: { backdrop: system.decor?.backdropFile, texture: system.decor?.textureFile, element: system.decor?.elementFile },
     }).catch(() => undefined);
     if (made) {
       if (slide.n === run.plan.slides[1]?.n) system.htmlMaster = made.html;

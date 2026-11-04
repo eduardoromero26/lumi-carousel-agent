@@ -424,6 +424,10 @@ class _LinePageState extends State<LinePage> {
   Map<String, dynamic>? state;
   String? error;
   Timer? timer;
+  final site = TextEditingController();
+  bool adding = false;
+  bool composing = false;
+  String? addError;
 
   @override
   void initState() {
@@ -447,6 +451,7 @@ class _LinePageState extends State<LinePage> {
   @override
   void dispose() {
     timer?.cancel();
+    site.dispose();
     super.dispose();
   }
 
@@ -464,51 +469,253 @@ class _LinePageState extends State<LinePage> {
     }
   }
 
+  // A website straight into the line, from the board itself.
+  Future<void> add() async {
+    final url = site.text.trim();
+    if (url.isEmpty || adding) return;
+    setState(() {
+      adding = true;
+      addError = null;
+    });
+    try {
+      final s = await Api.enqueue([url], web.window.navigator.language.startsWith('es') ? 'Español' : 'English', 'Community');
+      if (!mounted) return;
+      setState(() {
+        state = s;
+        site.clear();
+        composing = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() => addError = '$e'.replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => adding = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = ((state?['items'] as List?) ?? const []).cast<Map<String, dynamic>>().where((i) => i['batch'] == 'Community').toList();
-    return ColoredBox(
-      color: Palette.canvas,
-      child: ListView(padding: const EdgeInsets.all(16), children: [
-        Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1100),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text('The line'.tr, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
-              const SizedBox(height: 4),
-              Text('Every website the community asked for while the agents were busy: one carousel after another.'.tr, style: const TextStyle(color: Palette.muted)),
-              const SizedBox(height: 16),
-              if (state == null && error == null) const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(children: [
-                    Text(error!, style: const TextStyle(color: Palette.danger)),
-                    const SizedBox(height: 8),
-                    OutlinedButton.icon(onPressed: load, icon: const Icon(Icons.refresh, size: 18), label: Text('Try again'.tr)),
-                  ]),
-                ),
-              if (state != null && items.isEmpty)
-                Padding(padding: const EdgeInsets.all(32), child: Center(child: Text('Nobody is in line: add a website in Create.'.tr, style: const TextStyle(color: Palette.faint)))),
-              if (state != null && items.isNotEmpty) _Board(items: items, simple: true),
+    List<Map<String, dynamic>> of(Set<String> statuses, {bool newest = false}) {
+      final list = items.where((i) => statuses.contains(i['status'])).toList();
+      if (newest) list.sort((a, b) => '${b['finishedAt'] ?? ''}'.compareTo('${a['finishedAt'] ?? ''}'));
+      if (!newest) list.sort((a, b) => (a['id'] as int).compareTo(b['id'] as int));
+      return list;
+    }
+
+    final waiting = of({'waiting'});
+    final running = of({'running'});
+    final done = of({'done'}, newest: true).take(24).toList();
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFF3F0FF), Color(0xFFF8F7FC), Color(0xFFEFF6F4)]),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 14),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('The line'.tr, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
+                const SizedBox(height: 4),
+                Text('Every website the community asked for while the agents were busy: one carousel after another.'.tr, style: const TextStyle(color: Palette.muted)),
+              ]),
+            ),
+            if (state != null)
+              _LineStat(label: 'In line'.tr, value: '${waiting.length}', color: Palette.muted),
+            const SizedBox(width: 8),
+            if (state != null) _LineStat(label: 'In progress'.tr, value: '${running.length}', color: Palette.primary),
+            const SizedBox(width: 8),
+            if (state != null) _LineStat(label: 'Done'.tr, value: '${of({'done'}).length}', color: const Color(0xFF0E8A6A)),
+          ]),
+        ),
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(children: [
+              const Icon(Icons.error_outline_rounded, size: 18, color: Palette.danger),
+              const SizedBox(width: 8),
+              Expanded(child: Text(error!, style: const TextStyle(color: Palette.danger))),
+              TextButton.icon(onPressed: load, icon: const Icon(Icons.refresh, size: 18), label: Text('Try again'.tr)),
             ]),
           ),
+        Expanded(
+          child: state == null && error == null
+              ? const Center(child: CircularProgressIndicator())
+              : LayoutBuilder(builder: (context, box) {
+                  final wide = box.maxWidth >= 1040;
+                  Widget column(Widget c) => wide ? Expanded(child: c) : SizedBox(width: 320, child: c);
+                  final columns = [
+                    column(_LineColumn(
+                      title: 'In line'.tr,
+                      color: const Color(0xFF8A84A8),
+                      tint: const Color(0xFFF1F0F6),
+                      items: waiting,
+                      empty: 'Nobody is in line.'.tr,
+                      footer: composing
+                          ? _AddCard(controller: site, busy: adding, error: addError, onAdd: add, onCancel: () => setState(() => composing = false))
+                          : _AddButton(onTap: () => setState(() => composing = true)),
+                    )),
+                    column(_LineColumn(
+                      title: 'In progress'.tr,
+                      color: Palette.primary,
+                      tint: const Color(0xFFEEEAFE),
+                      items: running,
+                      empty: 'The agents are free: the next website starts right away.'.tr,
+                    )),
+                    column(_LineColumn(
+                      title: 'Done'.tr,
+                      color: const Color(0xFF0E8A6A),
+                      tint: const Color(0xFFE7F6F0),
+                      items: done,
+                      empty: 'The finished carousels show here.'.tr,
+                    )),
+                  ];
+                  final row = Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    for (var i = 0; i < columns.length; i++) ...[if (i > 0) const SizedBox(width: 14), columns[i]],
+                  ]);
+                  return Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+                    child: wide ? row : SingleChildScrollView(scrollDirection: Axis.horizontal, child: SizedBox(width: 320 * 3 + 28, child: row)),
+                  );
+                }),
         ),
       ]),
     );
   }
 }
 
+class _LineStat extends StatelessWidget {
+  const _LineStat({required this.label, required this.value, required this.color});
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Palette.border)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: color, height: 1.1)),
+          Text(label, style: const TextStyle(fontSize: 11.5, color: Palette.faint)),
+        ]),
+      );
+}
+
+// One list of the board, as in Trello: its header, its cards scrolling inside it, and its footer.
+class _LineColumn extends StatelessWidget {
+  const _LineColumn({required this.title, required this.color, required this.tint, required this.items, required this.empty, this.footer});
+  final String title;
+  final Color color;
+  final Color tint;
+  final List<Map<String, dynamic>> items;
+  final String empty;
+  final Widget? footer;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(16), border: Border.all(color: color.withValues(alpha: 0.18))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+          child: Row(children: [
+            Container(width: 10, height: 10, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            const SizedBox(width: 10),
+            Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15))),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(999), border: Border.all(color: color.withValues(alpha: 0.3))),
+              child: Text('${items.length}', style: mono(size: 11.5, color: color, weight: FontWeight.w800)),
+            ),
+          ]),
+        ),
+        Expanded(
+          child: items.isEmpty
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 26, horizontal: 16),
+                      decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: color.withValues(alpha: 0.25), width: 1.5)),
+                      child: Text(empty, textAlign: TextAlign.center, style: const TextStyle(color: Palette.faint, fontSize: 12.5, height: 1.4)),
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                  itemCount: items.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) => _Ticket(key: ValueKey(items[i]['id']), item: items[i], place: items[i]['status'] == 'waiting' ? i + 1 : null),
+                ),
+        ),
+        ?footer,
+      ]),
+    );
+  }
+}
+
+class _AddButton extends StatelessWidget {
+  const _AddButton({required this.onTap});
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+        child: TextButton.icon(
+          onPressed: onTap,
+          style: TextButton.styleFrom(alignment: Alignment.centerLeft, foregroundColor: Palette.muted, minimumSize: const Size.fromHeight(40)),
+          icon: const Icon(Icons.add_rounded, size: 20),
+          label: Text('Add a website'.tr),
+        ),
+      );
+}
+
+class _AddCard extends StatelessWidget {
+  const _AddCard({required this.controller, required this.busy, required this.onAdd, required this.onCancel, this.error});
+  final TextEditingController controller;
+  final bool busy;
+  final String? error;
+  final VoidCallback onAdd;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Palette.primary.withValues(alpha: 0.4))),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              onSubmitted: (_) => onAdd(),
+              decoration: InputDecoration(hintText: 'yourbusiness.com'.tr, isDense: true, errorText: error),
+            ),
+            const SizedBox(height: 8),
+            Row(children: [
+              FilledButton(
+                onPressed: busy ? null : onAdd,
+                style: FilledButton.styleFrom(minimumSize: const Size(0, 38)),
+                child: busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : Text('Add to the line'.tr),
+              ),
+              const SizedBox(width: 6),
+              IconButton(tooltip: 'Cancel'.tr, onPressed: onCancel, icon: const Icon(Icons.close_rounded, color: Palette.muted)),
+            ]),
+          ]),
+        ),
+      );
+}
+
 // The queue as a kanban board: every website is a ticket that moves from waiting to in
 // progress to ready, or to the problems column when its run failed or was stopped.
 class _Board extends StatelessWidget {
-  const _Board({required this.items, this.onRemove, this.onStop, this.simple = false});
+  const _Board({required this.items, this.onRemove, this.onStop});
   final List<Map<String, dynamic>> items;
   // Null on the public line: nobody removes or stops someone else's carousel.
   final ValueChanged<int>? onRemove;
   final ValueChanged<String>? onStop;
-  // The community's line: in line, in progress, done.
-  final bool simple;
 
   // A column with hundreds of done tickets would bury the board: the newest ones show.
   static const shown = 30;
@@ -521,18 +728,12 @@ class _Board extends StatelessWidget {
       return list;
     }
 
-    final columns = simple
-        ? [
-            ('In line'.tr, Palette.faint, of({'waiting'})),
-            ('In progress'.tr, Palette.primary, of({'running'})),
-            ('Done'.tr, const Color(0xFF0E8A6A), of({'done'}, newest: true)),
-          ]
-        : [
-            ('Waiting'.tr, Palette.faint, of({'waiting'})),
-            ('In progress'.tr, Palette.primary, of({'running'})),
-            ('Ready to publish'.tr, const Color(0xFF0E8A6A), of({'done'}, newest: true)),
-            ('Needs attention'.tr, Palette.danger, of({'failed', 'stopped'}, newest: true)),
-          ];
+    final columns = [
+      ('Waiting'.tr, Palette.faint, of({'waiting'})),
+      ('In progress'.tr, Palette.primary, of({'running'})),
+      ('Ready to publish'.tr, const Color(0xFF0E8A6A), of({'done'}, newest: true)),
+      ('Needs attention'.tr, Palette.danger, of({'failed', 'stopped'}, newest: true)),
+    ];
     return LayoutBuilder(builder: (context, box) {
       // Wide: the four columns share the width. Narrow: they keep their width and scroll sideways.
       final wide = box.maxWidth >= 1000;

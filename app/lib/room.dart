@@ -768,6 +768,9 @@ class _RoomState extends State<_Room> {
                     : ('Replay', _C.violet, false);
     final header = _Header(
       spend: v.tokens > 0 || v.cost != null ? (v.tokens, v.cost) : null,
+      // Live it runs on the wall clock; in a replay, how long the run had gone at that point.
+      started: all.firstOrNull?.at,
+      until: liveNow ? null : (shown > 0 ? all[shown - 1].at : all.firstOrNull?.at),
       onStop: liveNow || editing != null
           ? () => Api.stop(widget.runId).catchError((Object e) {
                 if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
@@ -901,9 +904,12 @@ class _RoomState extends State<_Room> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.name, required this.url, required this.logo, required this.status, required this.replay, required this.toggle, required this.onBack, this.onExit, this.spend, this.onStop});
+  const _Header({required this.name, required this.url, required this.logo, required this.status, required this.replay, required this.toggle, required this.onBack, this.onExit, this.spend, this.onStop, this.started, this.until});
   // Tokens and dollars spent so far; the stop button while the agents work.
   final (int, double?)? spend;
+  final DateTime? started;
+  // Null while live: the timer keeps counting.
+  final DateTime? until;
   final VoidCallback? onStop;
   final VoidCallback? onExit;
   final String name;
@@ -954,6 +960,7 @@ class _Header extends StatelessWidget {
             const Spacer(),
             ?toggle,
             const SizedBox(width: 12),
+            if (started != null) _Elapsed(started: started!, until: until),
             if (spend != null)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -981,6 +988,52 @@ class _Header extends StatelessWidget {
           ]),
         ),
         if (replay != null) replay!.bar(),
+      ]),
+    );
+  }
+}
+
+// How long the run has been going: ticks every second while live.
+class _Elapsed extends StatefulWidget {
+  const _Elapsed({required this.started, this.until});
+  final DateTime started;
+  final DateTime? until;
+
+  @override
+  State<_Elapsed> createState() => _ElapsedState();
+}
+
+class _ElapsedState extends State<_Elapsed> {
+  Timer? tick;
+
+  @override
+  void initState() {
+    super.initState();
+    tick = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (widget.until == null && mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    tick?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var d = (widget.until ?? DateTime.now()).difference(widget.started);
+    if (d.isNegative) d = Duration.zero;
+    String two(int x) => x.toString().padLeft(2, '0');
+    final text = d.inHours > 0 ? '${d.inHours}:${two(d.inMinutes % 60)}:${two(d.inSeconds % 60)}' : '${d.inMinutes}:${two(d.inSeconds % 60)}';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      margin: const EdgeInsets.only(right: 8),
+      decoration: BoxDecoration(color: _C.raised, borderRadius: BorderRadius.circular(8), border: Border.all(color: _C.line)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.timer_outlined, size: 15, color: _C.muted),
+        const SizedBox(width: 6),
+        Text(text, style: mono(size: 12, color: _C.text, weight: FontWeight.w700)),
       ]),
     );
   }
@@ -1364,7 +1417,7 @@ class _GimpState extends State<_Gimp> {
                       height: 30,
                       decoration: const BoxDecoration(color: _G.bar, border: Border(bottom: BorderSide(color: _G.edge), top: BorderSide(color: _G.edge))),
                       child: Row(children: [
-                        for (final (photo, icon, label) in [(false, Icons.layers_outlined, 'Layers'), (true, Icons.photo_library_outlined, 'Photos · ${photos.length}')])
+                        for (final (photo, icon, label) in [(false, Icons.layers_outlined, 'Layers'), (true, Icons.photo_library_outlined, 'Photos · ${allPhotos.length}')])
                           InkWell(
                             onTap: () => setState(() => photosTab = photo),
                             child: Container(
@@ -1382,16 +1435,16 @@ class _GimpState extends State<_Gimp> {
                     if (photosTab)
                       SizedBox(
                         height: 300,
-                        child: photos.isEmpty
+                        child: allPhotos.isEmpty
                             ? const Center(child: Text('The photos show once the analyst reads the website.', textAlign: TextAlign.center, style: TextStyle(color: _G.dim, fontSize: 11.5)))
                             : GridView.builder(
                                 padding: const EdgeInsets.all(8),
                                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 90, mainAxisSpacing: 6, crossAxisSpacing: 6, childAspectRatio: 0.8),
-                                itemCount: photos.length,
+                                itemCount: allPhotos.length,
                                 itemBuilder: (context, i) => _PhotoTile(
-                                  photo: photos[i],
-                                  current: photos[i].id == slidePhotos[s.n],
-                                  onTap: () => photos[i].id == slidePhotos[s.n] ? null : send('Use photo ${photos[i].id} on this slide instead of the current photo.'),
+                                  photo: allPhotos[i],
+                                  current: allPhotos[i].id == slidePhotos[s.n],
+                                  onTap: () => allPhotos[i].id == slidePhotos[s.n] ? null : send('Use photo ${allPhotos[i].id} on this slide instead of the current photo.'),
                                 ),
                               ),
                       )
@@ -1458,6 +1511,9 @@ class _GimpState extends State<_Gimp> {
     } catch (_) {}
   }
 
+  // The run's photos, cutouts included, and every other image from the website.
+  List<_RunPhoto> get allPhotos => _websiteChoices(photos, widget.view.site, cutouts: true);
+
   void tell(String text) => ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text(text), duration: const Duration(seconds: 4)));
 
   Future<void> send(String feedback) async {
@@ -1516,22 +1572,7 @@ class _GimpState extends State<_Gimp> {
     if (photos.isEmpty) await loadPhotos();
     if (!mounted) return;
     final current = slidePhotos[widget.slide.n];
-    final id = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Choose the photo for slide ${widget.slide.n}'),
-        content: SizedBox(
-          width: 560,
-          height: 420,
-          child: GridView.builder(
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 130, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.8),
-            itemCount: photos.length,
-            itemBuilder: (context, i) => _PhotoTile(photo: photos[i], current: photos[i].id == current, onTap: () => Navigator.pop(context, photos[i].id)),
-          ),
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))],
-      ),
-    );
+    final id = await _pickPhotoDialog(context, slide: widget.slide.n, choices: allPhotos, current: current, host: _hostOf(widget.view.url));
     if (id == null || id == current) return;
     await send('Use photo $id on this slide instead of the current photo.');
   }
@@ -3329,6 +3370,137 @@ class _SafeAreas extends StatelessWidget {
 }
 
 
+// Every image the analyst found on the website (not logos or icons): the run's photos, and
+// the rest by their asset id, which the server turns into a photo when it's chosen.
+List<_RunPhoto> _websiteChoices(List<_RunPhoto> photos, Map? site, {Set<String> excluded = const {}, bool cutouts = false}) {
+  final assets = ((site?['assets'] as List?) ?? const []).whereType<Map>().where((a) => a['kind'] != 'logo' && a['kind'] != 'icon' && !excluded.contains(a['id']));
+  final mine = photos.where((p) => (cutouts || !p.cutout) && !excluded.contains(p.asset)).toList();
+  return [
+    ...mine,
+    for (final a in assets)
+      if (!photos.any((p) => p.asset == a['id'])) (id: '${a['id']}', url: '${a['url']}', note: '${a['description'] ?? ''}', cutout: false, asset: '${a['id']}'),
+  ];
+}
+
+String _hostOf(String? url) => (Uri.tryParse(url ?? '')?.host ?? '').replaceFirst(RegExp(r'^www\.'), '');
+
+// The photo for a slide: everything from the website in one grid, the one in use marked.
+Future<String?> _pickPhotoDialog(BuildContext context, {required int slide, required List<_RunPhoto> choices, required String? current, String host = ''}) {
+  final size = MediaQuery.sizeOf(context);
+  return showDialog<String>(
+    context: context,
+    barrierColor: const Color(0x991B1540),
+    builder: (context) => Dialog(
+      backgroundColor: _C.panel,
+      surfaceTintColor: Colors.transparent,
+      insetPadding: const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: _C.line)),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 860, maxHeight: size.height * 0.86),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 12, 16),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text('SLIDE ${slide.toString().padLeft(2, '0')}', style: mono(size: 11, color: _C.violet, weight: FontWeight.w800, spacing: 0.6)),
+                  const SizedBox(height: 4),
+                  const Text('Choose its photo', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: _C.text, letterSpacing: -0.2)),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${choices.length} ${choices.length == 1 ? 'image' : 'images'} from ${host.isEmpty ? 'the website' : host}. The designer rebuilds the slide with the one you pick.',
+                    style: const TextStyle(fontSize: 13, color: _C.muted, height: 1.4),
+                  ),
+                ]),
+              ),
+              IconButton(tooltip: 'Close', onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded, color: _C.muted)),
+            ]),
+          ),
+          const Divider(height: 1, color: _C.line),
+          Flexible(
+            child: choices.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Text('The analyst found no photos on the website.', textAlign: TextAlign.center, style: TextStyle(color: _C.faint)),
+                  )
+                : GridView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.all(20),
+                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 180, mainAxisSpacing: 14, crossAxisSpacing: 14, childAspectRatio: 0.8),
+                    itemCount: choices.length,
+                    itemBuilder: (context, i) => _PickTile(photo: choices[i], current: choices[i].id == current, onTap: () => Navigator.pop(context, choices[i].id)),
+                  ),
+          ),
+        ]),
+      ),
+    ),
+  );
+}
+
+class _PickTile extends StatefulWidget {
+  const _PickTile({required this.photo, required this.current, required this.onTap});
+  final _RunPhoto photo;
+  final bool current;
+  final VoidCallback onTap;
+
+  @override
+  State<_PickTile> createState() => _PickTileState();
+}
+
+class _PickTileState extends State<_PickTile> {
+  bool hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = widget.photo;
+    final on = widget.current;
+    return MouseRegion(
+      cursor: on ? SystemMouseCursors.basic : SystemMouseCursors.click,
+      onEnter: (_) => setState(() => hover = true),
+      onExit: (_) => setState(() => hover = false),
+      child: GestureDetector(
+        onTap: on ? null : widget.onTap,
+        child: Tooltip(
+          message: p.note.isEmpty ? p.id : p.note,
+          waitDuration: const Duration(milliseconds: 500),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            decoration: BoxDecoration(
+              color: _C.raised,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: on ? _C.violet : (hover ? _C.violet.withValues(alpha: 0.45) : _C.line), width: on ? 2.5 : 1),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Stack(fit: StackFit.expand, children: [
+              Padding(padding: EdgeInsets.all(p.cutout ? 12 : 0), child: _Net(p.url, fit: p.cutout ? BoxFit.contain : BoxFit.cover)),
+              if (on)
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(color: _C.violet, shape: BoxShape.circle),
+                    child: const Icon(Icons.check_rounded, size: 14, color: Colors.white),
+                  ),
+                ),
+              Positioned(
+                left: 8,
+                bottom: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                  decoration: BoxDecoration(color: on ? _C.violet : Colors.white.withValues(alpha: 0.92), borderRadius: BorderRadius.circular(999), border: on ? null : Border.all(color: _C.line)),
+                  child: Text(on ? 'On the slide' : (p.cutout ? 'Cut out' : (hover ? 'Use this one' : 'Photo')),
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: on ? Colors.white : _C.text)),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _PhotoTile extends StatelessWidget {
   const _PhotoTile({required this.photo, required this.current, required this.onTap});
   final _RunPhoto photo;
@@ -3688,33 +3860,10 @@ class _PlanBoardState extends State<_PlanBoard> {
 
   // Every image the analyst found on the website (not logos or icons): the run's photos, and
   // the rest by their asset id, which the server turns into a photo when it's chosen.
-  List<_RunPhoto> get choices {
-    final assets = ((widget.view.site?['assets'] as List?) ?? const []).whereType<Map>().where((a) => a['kind'] != 'logo' && a['kind'] != 'icon' && !widget.excluded.contains(a['id']));
-    final mine = photos.where((p) => !p.cutout && !widget.excluded.contains(p.asset)).toList();
-    return [
-      ...mine,
-      for (final a in assets)
-        if (!mine.any((p) => p.asset == a['id'])) (id: '${a['id']}', url: '${a['url']}', note: '${a['description'] ?? ''}', cutout: false, asset: '${a['id']}'),
-    ];
-  }
+  List<_RunPhoto> get choices => _websiteChoices(photos, widget.view.site, excluded: widget.excluded);
 
   Future<void> pick(int n) async {
-    final id = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('Choose the photo for slide $n'),
-        content: SizedBox(
-          width: 560,
-          height: 420,
-          child: GridView.builder(
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 130, mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.8),
-            itemCount: choices.length,
-            itemBuilder: (context, i) => _PhotoTile(photo: choices[i], current: choices[i].id == photoOf(planSlides.firstWhere((x) => x['n'] == n)), onTap: () => Navigator.pop(context, choices[i].id)),
-          ),
-        ),
-        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel'))],
-      ),
-    );
+    final id = await _pickPhotoDialog(context, slide: n, choices: choices, current: photoOf(planSlides.firstWhere((x) => x['n'] == n)), host: _hostOf(widget.view.url));
     if (id != null) setState(() => photoFor[n] = id);
   }
 

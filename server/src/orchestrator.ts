@@ -226,6 +226,18 @@ export async function editSlide(run: Run, n: number, feedback: string): Promise<
   if (!plan || !slide) throw new Error(`Slide ${n} not found`);
   run.status = 'running';
   await withGimp(run, async (gimp) => {
+    // The owner's pick goes on in code, not left to the fixer; a website image becomes a photo.
+    const picked = /^Use photo (\S+) on this slide/.exec(feedback)?.[1];
+    if (picked) {
+      let photo = run.photos.find((p) => p.id === picked);
+      const asset = photo ? undefined : run.assets.find((a) => a.id === picked && a.kind !== 'logo' && a.kind !== 'icon');
+      if (asset) {
+        photo = run.photos.find((p) => p.asset === asset.id && !p.cutout) ?? (await photoFromAsset(run, asset));
+        if (!run.photos.includes(photo)) run.photos.push(photo);
+        feedback = feedback.replace(picked, photo.id);
+      }
+      if (photo) slide.photo = photo.id;
+    }
     run.emit('status', 'designer', `Editing slide ${n}: ${feedback}`, { slide: n });
     const others = await Promise.all(run.slides.filter((s) => s.n !== n).map(async (s) => (await readFile(path.join(run.dir, s.file))).toString('base64')));
     if (run.system && slide.layout) {

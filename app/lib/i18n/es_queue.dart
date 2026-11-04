@@ -1,5 +1,18 @@
 // Spanish for the queue area. The key is the English text exactly as in the code.
 const Map<String, String> esQueue = {
+  // The board
+  'Board': 'Tablero',
+  'Batches': 'Lotes',
+  'All batches': 'Todos los lotes',
+  'Waiting': 'En espera',
+  'In progress': 'En proceso',
+  'Ready to publish': 'Listos para publicar',
+  'Needs attention': 'Con problemas',
+  'No tickets here.': 'No hay tickets aquí.',
+  '+{n} more': '+{n} más',
+  '#{n} in line': 'Lugar {n} en la fila',
+  'The agents are on it': 'Los agentes trabajan en él',
+  '{n}/10': '{n}/10',
   // The Learned filter chip: all the lessons (the agent log's chip in main says 'Everyone').
   'All': 'Todas',
   // Queue

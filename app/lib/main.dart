@@ -190,7 +190,8 @@ class _HomeShellState extends State<HomeShell> {
                   scrollDirection: Axis.horizontal,
                   child: Row(children: [
                     tabButton(0, Icons.auto_awesome_outlined, 'Create'.tr),
-                    tabButton(1, Icons.dynamic_feed_outlined, 'Feed'.tr),
+                    tabButton(1, Icons.groups_outlined, 'Community'.tr),
+                    tabButton(2, Icons.view_kanban_outlined, 'Queue'.tr),
                   ]),
                 ),
               ),

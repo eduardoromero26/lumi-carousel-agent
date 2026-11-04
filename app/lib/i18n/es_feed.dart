@@ -1,6 +1,7 @@
 // Spanish for the feed area. The key is the English text exactly as in the code.
 const Map<String, String> esFeed = {
-  // 'Close', 'Cancel' and 'slide {n}' are in esMain, 'Quality' in esQueue: a key can't be in two catalogs.
+  // A key may be in two catalogs (the merged map isn't const) as long as both say the same.
+  'Created by the community': 'Creado por la comunidad',
   // feed.dart: the header and the views
   '{n} carousels': '{n} carruseles',
   '{n} reels': '{n} reels',

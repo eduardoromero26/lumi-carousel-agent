@@ -3,6 +3,7 @@ const Map<String, String> esMain = {
   // Header and footer
   'Create': 'Crear',
   'Feed': 'Feed',
+  'Community': 'Comunidad',
   'Open source · Powered by ': 'Código abierto · Hecho por ',
   'Close': 'Cerrar',
 

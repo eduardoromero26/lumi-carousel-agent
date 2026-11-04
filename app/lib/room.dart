@@ -9,7 +9,8 @@ import 'package:http/http.dart' as http;
 import 'package:web/web.dart' as web;
 
 import 'api.dart';
-import 'main.dart' show mono, showBig;
+import 'i18n.dart';
+import 'main.dart' show LanguageToggle, mono, showBig;
 
 // Design it live: a run told from the agents' side. The team lights up as each agent
 // works, the slide is built in GIMP (its real layers, read from the .xcf), the critic is
@@ -963,6 +964,8 @@ class _Header extends StatelessWidget {
             const Spacer(),
             ?toggle,
             const SizedBox(width: 12),
+            const LanguageToggle(),
+            const SizedBox(width: 8),
             if (started != null) _Elapsed(started: started!, until: until),
             if (spend != null)
               Container(

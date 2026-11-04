@@ -9,6 +9,7 @@ import 'package:web/web.dart' as web;
 import 'api.dart';
 import 'feed.dart';
 import 'gallery.dart';
+import 'i18n.dart';
 import 'queue.dart';
 import 'room.dart';
 
@@ -101,8 +102,12 @@ class CarouselAgentApp extends StatelessWidget {
           style: TextButton.styleFrom(minimumSize: const Size(0, 44), padding: const EdgeInsets.symmetric(horizontal: 16), shape: rounded, foregroundColor: Palette.muted, textStyle: label),
         ),
       ),
-      // ?view=room: the agents' room, a screen of its own for watching a run.
-      home: Uri.base.queryParameters['view'] == 'room' ? const RoomPage() : const HomeShell(),
+      // ?view=room: the agents' room, a screen of its own for watching a run. A new language
+      // builds the app again from the top, so no const widget keeps the old words.
+      home: ValueListenableBuilder<String>(
+        valueListenable: appLanguage,
+        builder: (context, lang, _) => KeyedSubtree(key: ValueKey(lang), child: Uri.base.queryParameters['view'] == 'room' ? const RoomPage() : const HomeShell()),
+      ),
     );
   }
 }
@@ -184,11 +189,12 @@ class _HomeShellState extends State<HomeShell> {
                 child: SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(children: [
-                    tabButton(0, Icons.auto_awesome_outlined, 'Create'),
-                    tabButton(1, Icons.dynamic_feed_outlined, 'Feed'),
+                    tabButton(0, Icons.auto_awesome_outlined, 'Create'.tr),
+                    tabButton(1, Icons.dynamic_feed_outlined, 'Feed'.tr),
                   ]),
                 ),
               ),
+              const LanguageToggle(),
             ]),
           ),
           Expanded(
@@ -207,6 +213,38 @@ class _HomeShellState extends State<HomeShell> {
 }
 
 const kodemexUrl = 'https://kodemex.com.mx';
+
+// EN | ES in the header: the whole UI changes language and the choice is remembered.
+class LanguageToggle extends StatelessWidget {
+  const LanguageToggle({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final now = appLanguage.value;
+    Widget option(String lang, String label) {
+      final on = now == lang;
+      return InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: on ? null : () => setLanguage(lang),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 5),
+          decoration: BoxDecoration(color: on ? Palette.primary : Colors.transparent, borderRadius: BorderRadius.circular(999)),
+          child: Text(label, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, letterSpacing: 0.4, color: on ? Colors.white : Palette.muted)),
+        ),
+      );
+    }
+
+    return Tooltip(
+      message: now == 'es' ? 'Language' : 'Idioma',
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(999), border: Border.all(color: Palette.border)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [option('en', 'EN'), option('es', 'ES')]),
+      ),
+    );
+  }
+}
 
 class _PoweredBy extends StatelessWidget {
   const _PoweredBy();

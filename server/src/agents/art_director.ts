@@ -2,7 +2,7 @@ import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 import { config } from '../config.js';
-import { describeSystem, normalizeSystem, type Decor, type DesignSystem } from '../design.js';
+import { describeSystem, luminance, normalizeSystem, type Decor, type DesignSystem } from '../design.js';
 import { installFont, onGoogleFonts } from '../fonts.js';
 import type { Gimp } from '../gimp.js';
 import { chatJson, imagePart, type ContentPart } from '../llm.js';
@@ -22,7 +22,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   const onGoogle = (await Promise.all(siteFonts.map(async (f) => ((await onGoogleFonts(f)) ? f : undefined)))).filter(Boolean) as string[];
   const recent = recentLooks(run.id);
   const stats = taste();
-  const liked = describeTaste(stats, ['composition', 'personality', 'heading font', 'body font', 'device', 'logo', 'align', 'case', 'ground', 'decor', 'type', 'color slides', 'numbers']);
+  const liked = describeTaste(stats, ['composition', 'personality', 'heading font', 'body font', 'device', 'logo', 'align', 'case', 'ground', 'ground tone', 'decor', 'type', 'color slides', 'numbers']);
   const corrections = tasteCorrections();
   const decorTaste = describeDecorTaste(hostOf(run.brief.url));
   const ref = reference(run.brief.reference);
@@ -40,7 +40,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
         describeDirections(),
         decorTaste,
         ref ? describeReference(ref) : '',
-        recent.length && !ref ? `The agency's last carousels for other brands (composition, headlines / text, device, logo, alignment, case):\n${describeLooks(recent)}` : '',
+        recent.length && !ref ? `The agency's last carousels for other brands (composition, ground, headlines / text, device, logo, alignment, case):\n${describeLooks(recent)}` : '',
         `Slides: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role}${s.photo ? ' (photo)' : ''}`).join('; ')}.`,
         plan.slides[0]?.eyebrow ? 'The cover has a short label above its headline (the other slides have none).' : 'No slide has a label above the headline: "pill_label" is not an option.',
         `Language of the slides: ${run.brief.language ?? 'English'}.`,
@@ -90,13 +90,19 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
     return ask(config.modelId);
   });
   const system = normalizeSystem(raw, run.brief.brandColors ?? []);
-  const changes = freshen(system, onGoogle, recent, !!plan.slides[0]?.eyebrow, stats);
+  const changes = freshen(system, onGoogle, recent, !!plan.slides[0]?.eyebrow, stats, run.brief.brandColors ?? []);
   if (changes.length && !ref) run.emit('status', 'designer', `So it doesn't look like the last brands: ${changes.join('; ')}.`);
   if (ref) {
-    const followed = applyReference(system, plan, ref);
+    const followed = applyReference(system, plan, ref, run.brief.brandColors ?? []);
     run.emit('status', 'designer', `In the style of the reference "${ref.title}"${followed.length ? `: ${followed.join('; ')}` : ''}.`, { data: { url: referenceUrlOf(ref) } });
   }
+  // Slides without a photo get a generated image behind them, never a word wall.
+  if (plan.slides.some((s) => !s.photo)) {
+    system.decor ??= { blend: 'soft-light', strength: 0.2, glow: false };
+    system.decor.backdrop ??= `An atmospheric backdrop from the world of ${plan.business_type ?? 'the business'}: its kind of place, materials, light and shadow`;
+  }
   if (system.decor) await makeDecor(run, system.decor, { type: plan.business_type, personality: system.personality });
+  if (system.decor?.backdrop) await makeBackdrop(run, system);
 
   // Fonts that can't be installed fall back to Montserrat, so the system still holds.
   for (const role of ['heading', 'body'] as const) {
@@ -122,7 +128,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
 // A serif and a sans in light, regular and bold for a reference layout: the brand's own when
 // they are of that kind, else a classic one. A family that fails stays out.
 const SERIF = /serif|garamond|bodoni|caslon|playfair|fraunces|lora|merriweather|baskerville|cormorant|marcellus|cardo|bitter|alegreya|cinzel|prata|spectral|crimson|libre|domine|vollkorn|zilla|young/i;
-async function layoutFonts(gimp: Gimp, system: DesignSystem): Promise<NonNullable<DesignSystem['layoutFonts']>> {
+export async function layoutFonts(gimp: Gimp, system: DesignSystem): Promise<NonNullable<DesignSystem['layoutFonts']>> {
   const blocks = system.layout?.blocks ?? [];
   // Only the weights the plan uses (every download refreshes GIMP's fonts); 400 is the fallback.
   const weights = (font: 'serif' | 'sans') => [...new Set([400, ...blocks.filter((b) => b.font === font).map((b) => ({ light: 300, regular: 400, bold: 700 })[b.weight]), ...(blocks.some((b) => b.font === font && b.emphasis === 'bold') ? [700] : [])])];
@@ -165,6 +171,19 @@ async function makeDecor(run: Run, decor: Decor, extra: { type?: string; persona
       else decor.elementFile = file;
     }),
   );
+}
+
+// One image for every slide without a photo, in the tones of the ground so the text reads on it.
+async function makeBackdrop(run: Run, system: DesignSystem): Promise<void> {
+  const decor = system.decor!;
+  const dark = luminance(system.base) < 0.2;
+  const prompt = `${decor.backdrop}. Mostly ${dark ? 'deep, dark' : 'light, airy'} tones close to ${system.base}, low contrast; a calm, empty, softly lit area across the middle for a headline; soft focus, photographic`;
+  try {
+    decor.backdropFile = await generateAsset(run, prompt, 'background');
+    run.emit('status', 'designer', `Backdrop for the slides without a photo, with Muse Image: ${decor.backdrop}`, { data: { url: run.fileUrl(decor.backdropFile) } });
+  } catch (error) {
+    run.emit('status', 'designer', `No backdrop (${(error as Error).message.slice(0, 120)}): those slides go on the plain ground.`);
+  }
 }
 
 // The first screen and a half of a page screenshot, small enough for the model.

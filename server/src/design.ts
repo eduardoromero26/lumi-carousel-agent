@@ -54,6 +54,8 @@ export type DesignSystem = {
   // The owner's reference plan (layout.ts), with the serif and sans it needs by weight.
   layout?: RefLayout;
   layoutFonts?: { serif: Record<number, string>; sans: Record<number, string> };
+  // The reference's ground in bands (a light field over a deep one), in the brand's colors.
+  zones?: { y1: number; y2: number; color: string }[];
 };
 
 // The carousel's decor kit: the art director writes the Muse Image prompts once, the
@@ -68,6 +70,10 @@ export type Decor = {
   element?: string;
   // A soft accent light behind the text on slides without a photo.
   glow: boolean;
+  // A generated image behind the slides without a photo (a scene of the business's
+  // world, in the ground's tones), instead of a word repeated in rows.
+  backdrop?: string;
+  backdropFile?: string;
   idea?: string;
   textureFile?: string;
   elementFile?: string;
@@ -113,11 +119,12 @@ export function normalizeDecor(raw: unknown): Decor | undefined {
     strength: clampTo(d.strength, 0.08, 0.4) ?? 0.2,
     element: prompt(d.element),
     glow: d.glow === true,
+    backdrop: prompt(d.backdrop),
     idea: typeof d.idea === 'string' ? d.idea.slice(0, 300) : undefined,
   };
   const id = (v: unknown) => (typeof v === 'string' && /^[\w-]{4,80}$/.test(v.trim()) ? v.trim() : undefined);
   if (id(d.reuseTexture) || id(d.reuseElement)) decor.reuse = { texture: id(d.reuseTexture), element: id(d.reuseElement) };
-  return decor.texture || decor.element || decor.glow || decor.reuse ? decor : undefined;
+  return decor.texture || decor.element || decor.glow || decor.backdrop || decor.reuse ? decor : undefined;
 }
 
 export const LAYOUTS = ['cover', 'product', 'hero', 'photo_band', 'poster', 'cta'] as const;
@@ -176,6 +183,83 @@ export function calmGround(hex: string): string {
   // Oranges and yellows turn muddy brown when deepened: they go pastel (peach, butter).
   const warm = h >= 20 / 360 && h <= 70 / 360;
   return warm || luminance(hex) > 0.4 || l >= 0.62 ? fromHsl(h, Math.min(s, 0.75), 0.9) : fromHsl(h, Math.min(s, 0.62), Math.min(l, 0.34));
+}
+
+// The family of a ground, what makes a feed of carousels look alike at a glance: 18 of
+// 18 in a row came out on cream. Chroma, not HSL saturation: cream is "saturated" in HSL.
+export const GROUND_TONES = ['light', 'dark', 'deep', 'pastel'] as const;
+export type GroundTone = (typeof GROUND_TONES)[number];
+
+function chroma(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  return Math.max(r, g, b) - Math.min(r, g, b);
+}
+
+export function toneOf(hex: string): GroundTone {
+  if (!HEX.test(hex)) return 'light';
+  return luminance(hex) > 0.35 ? (chroma(hex) >= 0.11 ? 'pastel' : 'light') : chroma(hex) >= 0.12 ? 'deep' : 'dark';
+}
+
+// The brand's hue for a ground: its accent, or the most colorful of its colors; none
+// when the brand is all neutrals (then only light and dark are possible).
+function brandHue(colors: string[]): [number, number] | undefined {
+  const hues = colors.filter((c) => HEX.test(c) && chroma(c) >= 0.12).map((c) => toHsl(c));
+  return hues.length ? [hues[0][0], hues[0][1]] : undefined;
+}
+
+export function groundTones(colors: string[]): GroundTone[] {
+  return brandHue(colors) ? [...GROUND_TONES] : ['light', 'dark'];
+}
+
+// A ground of that family in the brand's hue: a warm white, a near-black with a hint
+// of the brand, a deep tone (forest, wine, navy, olive) or a pastel.
+export function groundOf(tone: GroundTone, colors: string[]): string {
+  const [h, s] = brandHue(colors) ?? [0, 0];
+  if (tone === 'light') return fromHsl(h, Math.min(s, 0.3), 0.975);
+  if (tone === 'dark') return fromHsl(h, Math.min(s, 0.14), 0.09);
+  if (tone === 'deep') return fromHsl(h, Math.min(Math.max(s, 0.35), 0.55), 0.22);
+  // Visibly tinted: at this lightness a low saturation reads as cream again.
+  return fromHsl(h, Math.min(Math.max(s, 0.6), 0.75), 0.88);
+}
+
+// A reference's ground color in the brand's own: a brand color of the same family and
+// near its lightness when there is one (Delgado's cream for a beige field), else the
+// reference's lightness in the brand's hue (a brown band becomes navy).
+export function inBrandTone(hex: string, colors: string[]): string {
+  const [, rs, rl] = toHsl(hex);
+  const own = colors.find((c) => HEX.test(c) && toneOf(c) === toneOf(hex) && Math.abs(toHsl(c)[2] - rl) < 0.15);
+  if (own) return own.toLowerCase();
+  const hue = brandHue(colors);
+  if (!hue) return fromHsl(0, 0, rl);
+  const s = rl > 0.6 ? Math.min(rs, 0.35) : Math.min(Math.max(rs, 0.35), 0.6);
+  return fromHsl(hue[0], s, rl);
+}
+
+// A new ground for a system: the text keeps the old ground's color when it reads
+// (cream text on deep green), the accent is the first brand color that stands out on
+// it, else a tint of the brand's hue that does.
+export function setGround(system: DesignSystem, base: string, colors: string[]): void {
+  const old = system.base;
+  system.base = base;
+  system.ink = contrast(base, old) >= 7 ? old : readableOn(base, system.ink);
+  const [h, s] = brandHue([system.accent, ...colors]) ?? [0, 0];
+  const dark = luminance(base) < 0.2;
+  const options = [system.accent, ...colors.filter((c) => HEX.test(c) && chroma(c) >= 0.12), fromHsl(h, Math.min(s, 0.7), dark ? 0.75 : 0.32), old, dark ? '#ffffff' : '#111111'];
+  system.accent = options.find((c) => contrast(c, base) >= 3 && c.toLowerCase() !== system.ink.toLowerCase())?.toLowerCase() ?? system.accent;
+  system.accentInk = readableOn(system.accent, system.accentInk);
+  system.ground = 'flat';
+  system.ground2 = undefined;
+}
+
+// A soft gradient of the same ground (lighter on dark grounds, a shade deeper on light
+// ones), only when the text still reads on both ends.
+export function softGradient(system: DesignSystem): boolean {
+  const [h, s, l] = toHsl(system.base);
+  const second = fromHsl(h, s, luminance(system.base) < 0.2 ? Math.min(l + 0.09, 0.4) : Math.max(l - 0.06, 0.6));
+  if (contrast(second, system.ink) < 4.5 || second === system.base) return false;
+  system.ground = 'gradient';
+  system.ground2 = second;
+  return true;
 }
 
 // The art director's answer, made safe: real colors, readable pairs, sane limits.
@@ -258,7 +342,7 @@ export function describeSystem(s: DesignSystem): string {
     `${s.typeScale === 'loud' ? 'Poster-sized headlines' : 'Quiet, smaller headlines'}${s.numbers ? '; the middle slides carry a big number (01, 02…) above their text' : ''}.`,
     `Brand device: ${s.device.replace('_', ' ')}. ${s.align === 'left' ? `Logo at the ${s.logoPosition === 'top_center' ? 'top' : 'bottom'} on the left margin, text aligned left on x = 80` : `Logo ${s.logoPosition.replace('_', ' ')}, everything centered on x = 540`}, margins 80 px.`,
     COMPOSITION_NOTES[s.composition],
-    `${s.products === 'loose' ? 'Products loose on the ground, no cards' : `Products on cards`}; corners ${s.radius ? `${s.radius} px` : 'square'}; ${s.ground === 'gradient' ? `gradient ground ${s.base} → ${s.ground2}` : 'flat ground'}${s.grain ? ' with grain' : ''}; ${s.button} buttons.`,
+    `Products cut out and loose on the ground with a soft shadow, no white or grey card (on purpose; a card only where the cutout failed); corners ${s.radius ? `${s.radius} px` : 'square'}; ${s.ground === 'gradient' ? `gradient ground ${s.base} → ${s.ground2}` : 'flat ground'}${s.grain ? ' with grain' : ''}; ${s.button} buttons.`,
     s.siteNotes ? `From the website: ${s.siteNotes}` : '',
     s.layout ? `Photo slides follow the owner's reference layout, on purpose (its own margins, not 80 px): ${describeLayout(s.layout)}` : '',
     s.notes,
@@ -275,6 +359,7 @@ function decorNotes(d: DesignSystem['decor']): string {
     d.textureFile ? `a ${d.texture} texture blended into the ground` : '',
     d.elementFile ? `a recurring ${d.element} bleeding off one corner of the slides without a full-bleed photo (on purpose: it may touch the edge, never the text or the logo)` : '',
     d.glow ? 'a soft accent light behind the text on slides without a photo' : '',
+    d.backdropFile ? `a generated ${d.backdrop} scene behind the slides without a photo and behind every cut-out product, which stands in it, softened so the text reads (on purpose: it is the carousel's set, not a business photo; the same scene on several slides is the family, not a clash with the flat ground)` : '',
   ].filter(Boolean);
   return parts.length ? `Decor kit (made with Muse Image): ${parts.join('; ')}.` : '';
 }

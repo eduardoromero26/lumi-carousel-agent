@@ -5,12 +5,12 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { config } from './config.js';
 import { db } from './db.js';
-import { COMPOSITIONS, calmGround, luminance, readableOn, type Composition, type DesignSystem } from './design.js';
+import { COMPOSITIONS, groundOf, inBrandTone, luminance, readableOn, toneOf, type Composition, type DesignSystem } from './design.js';
 import { chatJson, imagePart } from './llm.js';
 import type { Plan, Run } from './run.js';
 import { PERSONALITIES, placeLogo, type Personality } from './variety.js';
 import { REFERENCE_READER } from './agents/prompts.js';
-import { normalizeLayout, type RefLayout } from './layout.js';
+import { normalizeLayout, type RefLayout, type Zone } from './layout.js';
 
 // The style gallery: designs the owner picks as the look of a carousel, uploaded (other
 // studios' work: only its abstract parameters are used, never the image on a slide) or
@@ -105,7 +105,43 @@ async function readStyle(file: string): Promise<RefStyle> {
     { role: 'system', content: REFERENCE_READER },
     { role: 'user', content: [{ type: 'text', text: 'The reference design:' }, imagePart(thumb.toString('base64'), 'image/jpeg')] },
   ]);
-  return normalizeStyle(raw);
+  const style = normalizeStyle(raw);
+  // The ground's bands come from the pixels: the model said "brand" for a two-tone ground.
+  const zones = await measureZones(file);
+  if (style.layout && zones.length > 1) style.layout.zones = zones;
+  return style;
+}
+
+const hexOf = (c: number[]) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+const distance = (a: number[], b: number[]) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+const average = (rows: number[][]) => [0, 1, 2].map((c) => rows.reduce((t, r) => t + r[c], 0) / Math.max(1, rows.length));
+const median = (v: number[]) => [...v].sort((a, b) => a - b)[Math.floor(v.length / 2)];
+
+// The ground in horizontal bands, from the design's side strips (where text and products
+// seldom reach), row by row: one clear jump between two steady colors is a two-tone
+// ground; otherwise one band. Each strip is tried alone: a ghost letter can cross one.
+export async function measureZones(file: string): Promise<Zone[]> {
+  const { data, info } = await sharp(file).resize(40, 100, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const strip = (xs: number[]) =>
+    Array.from({ length: info.height }, (_, y) => [0, 1, 2].map((c) => median(xs.map((x) => data[(y * info.width + x) * 3 + c]))));
+  let best: { at: number; jump: number; top: number[]; bottom: number[] } | undefined;
+  for (const rows of [strip([0, 1, 2]), strip([info.width - 3, info.width - 2, info.width - 1])]) {
+    for (let at = 15; at <= 85; at++) {
+      const above = rows.slice(3, at - 2);
+      const below = rows.slice(at + 2, info.height - 3);
+      const top = average(above);
+      const bottom = average(below);
+      // Steady: most rows of each side close to its own color.
+      const steady = (side: number[][], c: number[]) => side.filter((r) => distance(r, c) < 28).length / side.length >= 0.85;
+      const jump = distance(top, bottom);
+      if (jump >= 55 && steady(above, top) && steady(below, bottom) && (!best || jump > best.jump)) best = { at, jump, top, bottom };
+    }
+  }
+  if (!best) return [{ y1: 0, y2: 1, hex: hexOf(average(strip([0, 1, 2, info.width - 3, info.width - 2, info.width - 1]))) }];
+  return [
+    { y1: 0, y2: best.at / 100, hex: hexOf(best.top) },
+    { y1: best.at / 100, y2: 1, hex: hexOf(best.bottom) },
+  ];
 }
 
 // Reads an uploaded reference again (after the reader learned something new, like its layout).
@@ -178,7 +214,7 @@ const tint = (a: string, b: string, t: number) => {
 
 // After the art director and the variety rules: the reference wins on every choice it
 // makes, the brand keeps its colors. Returns what changed, for the run's log.
-export function applyReference(system: DesignSystem, plan: Plan, ref: Reference): string[] {
+export function applyReference(system: DesignSystem, plan: Plan, ref: Reference, brandColors: string[] = []): string[] {
   const s = ref.style;
   const changes: string[] = [];
   const set = <K extends keyof DesignSystem>(key: K, value: DesignSystem[K], label: string) => {
@@ -199,13 +235,32 @@ export function applyReference(system: DesignSystem, plan: Plan, ref: Reference)
   set('personality', s.personality, 'personality');
   set('device', s.device === 'pill_label' && !plan.slides[0]?.eyebrow ? 'underline' : s.device, 'device');
   const light = luminance(system.base);
-  const base =
-    s.ground === 'light' && light < 0.75
+  const colors = [...brandColors, system.accent];
+  // "brand": the deep tone of the brand (navy for Delgado), never a pale tint of its accent.
+  const brand = () => (toneOf(system.base) === 'deep' || toneOf(system.base) === 'pastel' ? system.base : groundOf('deep', colors));
+  // Only where the ground shows: under a full-bleed photo the bands are the photo's own.
+  const zones = s.layout?.zones && s.layout.zones.length > 1 && s.layout.photo.mode !== 'full' ? s.layout.zones : undefined;
+  // Two tones: each band of the reference in the brand's colors; the text's ground is the
+  // band where the headline sits.
+  if (zones) {
+    system.zones = zones.map((z) => ({ y1: z.y1, y2: z.y2, color: inBrandTone(z.hex, colors) }));
+    const head = s.layout?.blocks.find((b) => b.role === 'headline') ?? s.layout?.blocks[0];
+    const y = head ? (head.box.y1 + head.box.y2) / 2 : 0.25;
+    changes.push(`ground in ${zones.length} bands: ${system.zones.map((z) => z.color).join(' over ')}`);
+    const under = system.zones.find((z) => y >= z.y1 && y < z.y2) ?? system.zones[0];
+    system.base = under.color;
+    system.ink = readableOn(under.color, system.ink);
+    system.ground = 'flat';
+    system.ground2 = undefined;
+  } else system.zones = undefined;
+  const base = zones
+    ? system.base
+    : s.ground === 'light' && light < 0.75
       ? tint('#ffffff', system.accent, 0.05)
       : s.ground === 'dark' && light > 0.06
         ? tint('#111111', system.accent, 0.12)
-        : s.ground === 'brand' && (light >= 0.75 || light <= 0.06)
-          ? calmGround(system.accent)
+        : s.ground === 'brand'
+          ? brand()
           : system.base;
   if (base !== system.base) {
     changes.push(`ground ${system.base} → ${base}`);

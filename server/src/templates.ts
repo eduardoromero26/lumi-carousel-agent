@@ -6,6 +6,7 @@ import { SLIDE } from './config.js';
 import { contrast, cutsOut, luminance, paletteFor, type DesignSystem, type Layout } from './design.js';
 import type { Gimp } from './gimp.js';
 import { buildFromLayout } from './layout_render.js';
+import { slideLogo } from './logo.js';
 import type { Asset, Photo, Run, SlidePlan } from './run.js';
 
 // The agency's carousel templates, built in GIMP with real, editable layers: the
@@ -144,6 +145,28 @@ export function ghostWord(slide: Pick<SlidePlan, 'headline' | 'emphasis'>): stri
   return word.length >= 3 && word.length <= 12 ? word.toUpperCase() : undefined;
 }
 
+// Where the ghost word reads: a subject crossing the word may hide only the foot of its
+// letters, like a masthead behind a head; one across their full height eats whole letters
+// even when it is narrow (Caruso "AB_AZA", "FL_YE"; Michelle "P_EL"). Behind the subject
+// when it clears the letters, else above the head, else nowhere.
+export function ghostPlace(word: string | undefined, subject: Rect, top: number): { word: string; size: number; cy: number } | undefined {
+  if (!word) return undefined;
+  const size = Math.round(Math.min(420, (W - 60) / (word.length * 0.62)));
+  const w = Math.min(W - 40, size * 0.62 * word.length);
+  const h = size * 0.75;
+  const [x1, x2] = [W / 2 - w / 2, W / 2 + w / 2];
+  // The share of the letters' height the subject covers where it crosses them.
+  const hidden = (cy: number) => {
+    if (Math.min(x2, subject.x2) <= Math.max(x1, subject.x1)) return 0;
+    return Math.max(0, Math.min(cy + h / 2, Math.min(subject.y2, H)) - Math.max(cy - h / 2, subject.y1)) / h;
+  };
+  const behind = Math.round(subject.y1 + (Math.min(subject.y2, H) - subject.y1) * 0.3);
+  if (hidden(behind) <= 0.35) return { word, size, cy: behind };
+  const above = Math.round(subject.y1 - h / 4);
+  if (above - h / 2 >= top && hidden(above) <= 0.35) return { word, size, cy: above };
+  return undefined;
+}
+
 async function gradient(file: string, color: string, from: 'bottom' | 'top', start: number): Promise<void> {
   const [y1, y2] = from === 'bottom' ? [start / H, 1] : [start / H, 0];
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><defs><linearGradient id="g" x1="0" y1="${y1}" x2="0" y2="${y2}">
@@ -220,6 +243,25 @@ export async function readable(surface: Buffer, ink: string): Promise<boolean> {
 export function mix(a: string, b: string, t: number): string {
   const c = (hex: string, i: number) => parseInt(hex.slice(1 + 2 * i, 3 + 2 * i), 16);
   return '#' + [0, 1, 2].map((i) => Math.round(c(a, i) * (1 - t) + c(b, i) * t).toString(16).padStart(2, '0')).join('');
+}
+
+// The backdrop on the ground, as strong as the text band allows, mirrored on every
+// second slide; too busy to read even when faint, the slide goes without it.
+async function backdropSlice(file: string, ground: string, ink: string, n: number, band: { y1: number; y2: number }, out: string): Promise<string | undefined> {
+  const image = await sharp(file).resize(W, H, { fit: 'cover' }).flop(n % 2 === 0).removeAlpha().png().toBuffer();
+  const top = clamp(Math.round(band.y1), 0, H - 1);
+  const height = clamp(Math.round(band.y2) - top, 1, H - top);
+  for (const k of [1, 0.8, 0.6, 0.45, 0.3]) {
+    const mixed = await sharp({ create: { width: W, height: H, channels: 3, background: ground } })
+      .composite([{ input: await sharp(image).ensureAlpha(k).png().toBuffer() }])
+      .png()
+      .toBuffer();
+    if (await readable(await sharp(mixed).extract({ left: 0, top, width: W, height }).png().toBuffer(), ink)) {
+      await sharp(mixed).toFile(out);
+      return out;
+    }
+  }
+  return undefined;
 }
 
 // A soft light of the accent behind the text, as strong as the text allows.
@@ -499,7 +541,7 @@ type Part = { kind: 'number' | 'eyebrow' | 'headline' | 'body' | 'swipe' | 'butt
 // Builds one slide from its template in the GIMP image already open (a blank slide).
 export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> {
   const { run, system, slide, photo } = input;
-  if (system.layout) {
+  if (system.layout && !slide.fresh) {
     const built = await buildFromLayout(gimp, input, system.layout);
     if (built) return built;
   }
@@ -508,12 +550,15 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
   await mkdir(dir, { recursive: true });
   const layout: Layout = slide.layout ?? (photo ? 'photo_band' : 'poster');
   // In a set of real photos the text goes on top and a studio product takes the photo's frame.
-  const banded = layout !== 'cta' && bandSkeleton(run);
+  // The call to action too: it closes in the carousel's own skeleton. It used to go in a short
+  // card where a tall photo shrank between blurred sides, the same last slide every time.
+  const banded = bandSkeleton(run);
   // The cutout composition: the subject cut out of its photo, standing on the color block.
   const cutPoster = !!photo?.cutout && !photo.matte && cutsOut(system, layout);
-  const inCard = !!photo && !photo.backdrop && !cutPoster && ((!!photo.cutout && !banded) || layout === 'product' || layout === 'hero' || layout === 'cta');
-  // Loose: a transparent product straight on the ground, no card (the brand's way, or the hero).
-  const loose = inCard && !!photo?.cutout && !photo.matte && (system.products === 'loose' || layout === 'hero');
+  const inCard = !!photo && !photo.backdrop && !cutPoster && ((!!photo.cutout && !banded) || layout === 'product' || layout === 'hero' || (layout === 'cta' && !banded));
+  // A transparent product always stands loose on the ground: the owner read the card as a catalog.
+  const clear = !!photo?.cutout && !photo.matte;
+  const loose = inCard && clear;
   const left = system.align === 'left';
   const place = left ? '_left' : '_center';
   const R = system.radius;
@@ -521,7 +566,7 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
   const ground = pal.ground;
   const ink = pal.ink;
   const accentText = contrast(pal.accent, ground) >= 3 ? pal.accent : ink;
-  const logo = pickLogo(run, ground);
+  const logo = await slideLogo(run, ground, ink);
   const heroLogo = !!logo && layout === 'cta' && !photo;
   const logoScale = tweaks.logoScale ?? 1;
   const logoH = Math.round(70 * logoScale);
@@ -543,7 +588,8 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
   // pixelating goes in a window at its own size; a website banner too, whole and never veiled.
   const needed = system.composition === 'overlay' ? Math.max(W / dims.width, H / dims.height) : Math.max(W / dims.width, 640 / dims.height);
   const small = !!photo && !photo.cutout && !photo.backdrop && needed > MAX_UP;
-  const framed = !!photo && (photo.backdrop || small || system.composition === 'window');
+  // A transparent product needs no window: it stands on the ground under the text.
+  const framed = !!photo && (photo.backdrop || small || (system.composition === 'window' && !clear));
 
   let textScale = 1;
   for (let attempt = 0; ; attempt++) {
@@ -714,14 +760,17 @@ export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> 
         }
         if (layout === 'hero') {
           // A giant ghost word behind the product: the label, or the headline's longest word.
-          const word = (slide.eyebrow?.trim() || [...slide.headline.split(/\s+/)].sort((a, b) => b.length - a.length)[0] || '').toUpperCase();
-          const size = Math.round(Math.min(380, 1240 / (Math.max(1, word.length) * 0.6)));
+          // It used to be sized for 1240 px, wider than the slide: always cut by the edges.
+          const label = slide.eyebrow?.trim().split(/\s+/).length === 1 ? slide.eyebrow.trim().toUpperCase() : undefined;
+          const ghost = ghostPlace(label && label.length <= 12 ? label : ghostWord(slide), product, card.y1);
           // Tone on tone with the ground, like the word behind a cutout: the pure accent shouted.
           const tone = luminance(ground) > 0.5 ? mix(ground, pal.accent, 0.2) : mix(ground, '#ffffff', 0.15);
-          code.push(`_g = _text('Ghost', ${py(word)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${size}, ${py(tone)}, 99999, -0.1, -0.02, 40)`);
-          code.push(`_g.set_opacity(100)
+          if (ghost) {
+            code.push(`_g = _text('Ghost', ${py(ghost.word)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${ghost.size}, ${py(tone)}, 99999, -0.1, -0.02, 40)`);
+            code.push(`_g.set_opacity(100)
 _img.reorder_item(_g, None, _bgpos() - 1)
-_g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2} - _g.get_height() / 2))`);
+_g.set_offsets(int(${W / 2} - _g.get_width() / 2), max(${card.y1}, int(${ghost.cy} - _g.get_height() / 2)))`);
+          }
         }
         if (!loose) code.push(`_shape('Card', ${card.x1}, ${card.y1}, ${cw}, ${ch}, ${py(photo.matte ?? CARD_LIGHT)}, ${R}, _bgpos())`);
         visible = card;
@@ -771,14 +820,12 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), int(${(card.y1 + card.y2) / 2
       }
       // A complementary accent mixed in turns grey: on a dark ground the tone is the ground, lighter.
       const tone = luminance(ground) > 0.5 ? mix(ground, pal.accent, 0.2) : mix(ground, '#ffffff', 0.15);
-      const word = ghostWord(slide);
-      if (word) {
+      const ghost = ghostPlace(ghostWord(slide), product, region.y1);
+      if (ghost) {
         // Depth: a giant word in the ground's own tone behind the subject, as wide as the slide.
-        const size = Math.round(Math.min(420, (W - 60) / (word.length * 0.62)));
-        const cy = Math.round(product.y1 + (Math.min(product.y2, H) - product.y1) * 0.3);
-        code.push(`_g = _text('Ghost', ${py(word)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${size}, ${py(tone)}, ${W - 40}, -0.1, -0.02, 120)
+        code.push(`_g = _text('Ghost', ${py(ghost.word)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${ghost.size}, ${py(tone)}, ${W - 40}, -0.1, -0.02, 120)
 _img.reorder_item(_g, None, _bgpos() - 1)
-_g.set_offsets(int(${W / 2} - _g.get_width() / 2), max(${region.y1}, int(${cy} - _g.get_height() / 2)))`);
+_g.set_offsets(int(${W / 2} - _g.get_width() / 2), max(${region.y1}, int(${ghost.cy} - _g.get_height() / 2)))`);
       } else {
         const circle = path.join(dir, `s${slide.n}-disc.png`);
         await disc(circle, tone, product, region.y1);
@@ -858,21 +905,10 @@ _g.set_offsets(int(${W / 2} - _g.get_width() / 2), max(${region.y1}, int(${cy} -
       visible = { x1: 0, y1: 0, x2: W, y2: H };
     }
 
-    // A slide of type alone: its word repeated in rows, tone on tone, fills the ground the
-    // way current posters do (the critic and the owner read an empty ground as unfinished).
-    if (!photo) {
-      const word = ghostWord(slide);
-      if (word) {
-        const size = clamp(Math.round((W * 0.85) / (word.length * 0.62)), 150, 260);
-        const rows = Math.ceil(H / (size * 0.82)) + 1;
-        const wall = Array.from({ length: rows }, (_, i) => Array(i % 2 ? 4 : 3).fill(word).join(' ')).join('\n');
-        const tone = luminance(ground) > 0.5 ? mix(ground, ink, 0.07) : mix(ground, '#ffffff', 0.08);
-        code.push(`_w = _text('Pattern', ${py(wall)}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${size}, ${py(tone)}, 99999, -0.18, -0.02, 40)
-_w.set_justification(Gimp.TextJustification.CENTER)
-_img.reorder_item(_w, None, _bgpos() - 1)
-_w.set_offsets(int(${W / 2} - _w.get_width() / 2), int(${H / 2} - _w.get_height() / 2))`);
-      }
-    }
+    // A slide of type alone, or a loose product standing in it, sits on the carousel's generated
+    // scene (the owner rejected a word repeated in rows behind the text; and liked the scene).
+    const backdrop = (!photo || clear) && system.decor?.backdropFile ? await backdropSlice(system.decor.backdropFile, ground, ink, slide.n, { y1: y0 - 40, y2: y0 + total + 40 }, path.join(dir, `s${slide.n}-backdrop.png`)) : undefined;
+    if (backdrop) code.push(`_image('Backdrop', ${py(backdrop)}, 0, 0, ${W}, ${H}, _bgpos())`);
 
     // The text block, placed first so the decor can keep clear of it.
     let y = y0;
@@ -899,7 +935,7 @@ _w.set_offsets(int(${W / 2} - _w.get_width() / 2), int(${H / 2} - _w.get_height(
         if (decor) code.push(`_image('Decor', ${py(out)}, ${decor.x1}, ${decor.y1}, ${decor.x2 - decor.x1}, ${decor.y2 - decor.y1}, _bgpos())`);
       }
       const light = path.join(dir, `s${slide.n}-glow.png`);
-      if (system.decor.glow && !photo && (await glow(light, system.accent, ground, ink, W / 2, (text.y1 + text.y2) / 2))) {
+      if (system.decor.glow && !photo && !backdrop && (await glow(light, system.accent, ground, ink, W / 2, (text.y1 + text.y2) / 2))) {
         code.push(`_image('Glow', ${py(light)}, 0, 0, ${W}, ${H}, _bgpos())`);
       }
     }
@@ -924,7 +960,7 @@ _bt.set_offsets(int(${x + w / 2} - _bt.get_width() / 2), ${p.y + 32})`);
       } else {
         code.push(`${place}(_get(${py(p.name)}), ${p.y})`);
         if (p.kind === 'headline' && underline) {
-          code.push(`_shape('Underline', ${left ? M : W / 2 - 60}, int(${p.y} + _get('Headline').get_height() + 22), 120, 10, ${py(pal.accent)}, ${Math.min(5, R)}, _below(_get('Headline')))`);
+          code.push(`_shape('Underline', ${left ? M : W / 2 - 60}, int(${p.y} + _get('Headline').get_height() + 22), 120, 10, ${py(accentText)}, ${Math.min(5, R)}, _below(_get('Headline')))`);
         }
       }
     }
@@ -934,14 +970,8 @@ _bt.set_offsets(int(${x + w / 2} - _bt.get_width() / 2), ${p.y + 32})`);
       const box = heroLogo ? { x: W / 2 - 220, y: 250, w: 440, h: 230 } : { x: W / 2 - 120 * logoScale, y: logoY, w: 240 * logoScale, h: logoH };
       const s = Math.min(box.w / logo.asset.width, box.h / logo.asset.height);
       const f = { w: Math.round(logo.asset.width * s), h: Math.round(logo.asset.height * s), x: 0, y: 0 };
-      const padX = heroLogo ? 44 : 22;
-      const padY = heroLogo ? 30 : 14;
-      // On the left margin it is the plate's edge that sits on it, not the logo's.
-      f.x = left && !heroLogo ? M + (logo.pill ? padX : 0) : Math.round(box.x + (box.w - f.w) / 2);
+      f.x = left && !heroLogo ? M : Math.round(box.x + (box.w - f.w) / 2);
       f.y = Math.round(box.y + (box.h - f.h) / 2);
-      if (logo.pill) {
-        code.push(`_shape('Logo plate', ${f.x - padX}, ${f.y - padY}, ${f.w + 2 * padX}, ${f.h + 2 * padY}, ${py(logo.pill)}, ${Math.round((f.h + 2 * padY) / 2)}, 0)`);
-      }
       code.push(`_image('Logo', ${py(logo.asset.path)}, ${f.x}, ${f.y}, ${f.w}, ${f.h})`);
     }
     code.push('Gimp.displays_flush()');
@@ -1038,23 +1068,3 @@ async function measure(gimp: Gimp, input: SlideInput, layout: Layout, scale: num
   });
 }
 
-// The logo version that reads on the ground; a logo with its own solid background
-// (or one too close to the ground) sits on a plate so it never looks pasted.
-export function pickLogo(run: Run, ground: string): { asset: Asset; pill?: string } | undefined {
-  const options = [run.logo, run.logoLight].filter(Boolean) as Asset[];
-  if (!options.length) return undefined;
-  // The most readable version; between equals, the wider one (a wordmark reads better in a header).
-  const best = options.sort((a, b) => logoContrast(b, ground) - logoContrast(a, ground) || b.width / b.height - a.width / a.height)[0];
-  if (best.matte) return { asset: best, pill: best.matte };
-  // A badge, or an opaque crop with a busy edge, already has its shape: a plate around
-  // it reads as a second border.
-  if (best.badge || !best.transparent) return { asset: best };
-  if (logoContrast(best, ground) < 2.2) return { asset: best, pill: luminance(ground) > 0.4 ? '#111111' : '#ffffff' };
-  return { asset: best };
-}
-
-function logoContrast(logo: Asset, ground: string): number {
-  if (logo.matte) return 21;
-  const tone = logo.tone ?? 0.5;
-  return contrast(ground, tone > 0.5 ? '#ffffff' : '#111111');
-}

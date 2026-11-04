@@ -1,10 +1,11 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { config } from './config.js';
 import { hashtagList, Run } from './run.js';
 import { directionId, noteId, tasteId, type Batch, type BatchFeedback, type LearningVote } from './learned.js';
 import { calibration, featuresOf, tasteStats, type Judged, type Stat, type Verdict, type Vote } from './taste.js';
+import { toneOf } from './design.js';
 import { lookOf, type Look } from './variety.js';
 
 // The index of every carousel for the feed: one row per run, with the post as the
@@ -58,14 +59,35 @@ export function saveCarousel(run: Run): void {
 // business counts too: making its carousel again tries something else, and the
 // votes decide what stays.
 export function recentLooks(exceptRun: string, limit = 6): Look[] {
-  const rows = db.prepare(`SELECT post FROM carousels WHERE slides > 0 AND id != ? ORDER BY created_at DESC LIMIT 60`).all(exceptRun) as { post: string }[];
+  const rows = db.prepare(`SELECT id, post FROM carousels WHERE slides > 0 AND id != ? ORDER BY created_at DESC LIMIT 60`).all(exceptRun) as { id: string; post: string }[];
   const looks: Look[] = [];
   for (const row of rows) {
     const look = (JSON.parse(row.post) as { look?: Look }).look;
-    if (look?.headingFont && !looks.some((l) => l.host === look.host)) looks.push(look);
+    if (look?.headingFont && !looks.some((l) => l.host === look.host)) looks.push(look.tone ? look : { ...look, ...groundOfRun(row.id) });
     if (looks.length === limit) break;
   }
   return looks;
+}
+
+export function recentReels(exceptRun: string, limit = 4): Look[] {
+  const rows = db.prepare(`SELECT id, post FROM carousels WHERE slides > 0 AND id != ? ORDER BY created_at DESC LIMIT 300`).all(exceptRun) as { id: string; post: string }[];
+  const reels: Look[] = [];
+  for (const row of rows) {
+    const look = (JSON.parse(row.post) as { look?: Look }).look;
+    if (look?.hook) reels.push(look);
+    if (reels.length === limit) break;
+  }
+  return reels;
+}
+
+// Looks saved before the ground was kept read it from the run.
+function groundOfRun(id: string): Pick<Look, 'tone' | 'ground'> {
+  try {
+    const system = (JSON.parse(readFileSync(path.join(config.runsDir, id, 'run.json'), 'utf8')) as { system?: { base?: string; ground?: Look['ground'] } }).system;
+    return system?.base ? { tone: toneOf(system.base), ground: system.ground ?? 'flat' } : {};
+  } catch {
+    return {};
+  }
 }
 
 // Finished carousels, newest first, with the owner's votes.

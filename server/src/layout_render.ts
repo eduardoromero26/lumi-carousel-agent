@@ -4,15 +4,19 @@ import sharp from 'sharp';
 import { SLIDE } from './config.js';
 import { contrast, luminance, readableOn, type DesignSystem } from './design.js';
 import type { Gimp } from './gimp.js';
+import { slideLogo } from './logo.js';
 import { mirrorLayout, type BlockRole, type Box, type LayoutBlock, type RefLayout } from './layout.js';
-import { LIB, MAX_UP, crisp, frostedPanel, keepBox, mix, onSlide, pickLogo, readable, type Built, type Fit, type Rect, type SlideInput } from './templates.js';
+import type { Run } from './run.js';
+import { LIB, MAX_UP, crisp, frostedPanel, ghostWord, keepBox, mix, onSlide, readable, type Built, type Fit, type Rect, type SlideInput } from './templates.js';
 
 // A slide built from the owner's reference plan (layout.ts) instead of a template: the
 // photo full-bleed with its subject where the reference has it, every text block in the
 // reference's box with its type treatment, the reference's lines and arrows, and a giant
-// title the subject stands in front of (the subject cut out by SAM, in place). Undefined
-// when this photo can't take the plan (too small to fill the slide, a face under the text):
-// the slide then goes to its template.
+// title the subject stands in front of (the subject cut out by SAM, in place). A product
+// poster ("box") instead: the ground in the reference's bands, its giant faded letter, the
+// product cut out and standing on the reference's line with a soft shadow, the logo where
+// the reference has its own. Undefined when this photo can't take the plan (too small to
+// fill the slide, a face under the text): the slide then goes to its template.
 const W = SLIDE.width;
 const H = SLIDE.height;
 
@@ -124,18 +128,35 @@ const START: Record<BlockRole, number> = { title: 0, headline: 54, body: 40, lab
 const MIN: Record<BlockRole, number> = { title: 60, headline: 36, body: 28, label: 18, cta: 24, signature: 16 };
 const NAME: Record<BlockRole, string> = { title: 'Title', headline: 'Headline', body: 'Body', label: 'Eyebrow', cta: 'Button text', signature: 'Signature' };
 
+// The brand's name for its initial: the part of the site's title that is in its domain
+// ("Muebles y Equipo para Oficina | Delgado" on mueblesdelgado.com.mx is Delgado).
+export function brandName(run: Pick<Run, 'site' | 'brief'>): string {
+  const parts = (run.site?.title ?? run.brief.business ?? '').split(/[|\-–·:]/).map((p) => p.trim()).filter(Boolean);
+  let host = '';
+  try {
+    host = new URL(run.brief.url ?? '').hostname.toLowerCase();
+  } catch {}
+  const compact = (t: string) => t.toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
+  return (parts.find((p) => compact(p).length >= 3 && host.includes(compact(p))) ?? parts[0] ?? '').slice(0, 40);
+}
+
 export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLayout): Promise<Built | undefined> {
   const { run, system, slide, photo } = input;
+  // A product poster: the product cut out on the reference's ground, never a banner. Only a
+  // reference of cut-out subjects; a photo in a frame (a window, a card) keeps its template.
+  // Only a poster the reader measured as one (two-tone ground or a giant letter, like Kauri):
+  // other boxed references keep their templates, which are tested.
+  const poster = plan.photo.mode === 'box' && system.composition === 'cutout' && (!!system.zones?.length || !!plan.ghost);
   // A slide without a photo (a call to action, a poster) takes the plan on a plain ground,
   // so the set keeps the reference's type; a product shot or a banner keeps its template.
-  if (plan.photo.mode !== 'full' || (photo && (photo.cutout || photo.backdrop))) return undefined;
+  if (poster ? photo?.backdrop : plan.photo.mode !== 'full' || (photo && (photo.cutout || photo.backdrop))) return undefined;
   // The subject on the other side of the photo than the reference's: the plan in a mirror.
-  const subject = keepBox(input.avoid);
+  const subject = poster ? undefined : keepBox(input.avoid);
   const layout = subject && ((subject.x1 + subject.x2) / 2 - 0.5) * (plan.photo.subjectAt - 0.5) < -0.01 ? mirrorLayout(plan) : plan;
 
   // The photo covers the slide with its subject where the reference has its own.
   let frame: Fit | undefined;
-  if (photo) {
+  if (photo && !poster) {
     const { width = 1, height = 1 } = await sharp(photo.path).metadata();
     const scale = Math.max(W / width, H / height);
     if (scale > MAX_UP) return undefined;
@@ -146,7 +167,7 @@ export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLa
   }
   const faces = keepBox(input.faces);
 
-  const business = (run.site?.title ?? run.brief.business ?? '').split(/[|\-–·]/)[0].trim().slice(0, 40);
+  const business = brandName(run);
   const texts = blockTexts(slide, layout, business);
   const blocks = layout.blocks.filter((b) => texts[b.role]?.trim() && !(b.role === 'signature' && run.logo));
   // A call to action the reference has no box for: a button under the lowest text block.
@@ -170,12 +191,17 @@ export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLa
 
   const dir = path.join(run.dir, 'build');
   await mkdir(dir, { recursive: true });
-  const light = layout.textTone === 'light';
-  const ink = light ? mix('#ffffff', system.base, 0.04) : luminance(system.ink) < 0.3 ? system.ink : '#1d1b19';
-  const shade = light ? mix(system.base, '#000000', 0.6) : mix(system.base, '#ffffff', 0.7);
+  // The poster's ground in bands (system.zones, from the reference); one band otherwise.
+  const zones = poster && system.zones?.length ? system.zones : [{ y1: 0, y2: 1, color: system.base }];
+  const zoneAt = (y: number) => (zones.find((z) => y >= z.y1 * H && y < z.y2 * H) ?? zones[zones.length - 1]).color;
+  const light = poster ? luminance(system.base) < 0.4 : layout.textTone === 'light';
+  const ink = poster ? readableOn(system.base, system.ink) : light ? mix('#ffffff', system.base, 0.04) : luminance(system.ink) < 0.3 ? system.ink : '#1d1b19';
+  const shade = poster ? system.base : light ? mix(system.base, '#000000', 0.6) : mix(system.base, '#ffffff', 0.7);
   const accent = contrast(system.accent, shade) >= 3 ? system.accent : ink;
   // Without a photo the ground is the shade the text was made for.
-  const ground = light ? shade : luminance(system.base) > 0.6 ? system.base : mix(system.base, '#ffffff', 0.8);
+  const ground = poster ? zones[0].color : light ? shade : luminance(system.base) > 0.6 ? system.base : mix(system.base, '#ffffff', 0.8);
+  // On a poster each block reads on the band under it.
+  const inkAt = (r: Rect) => (poster ? readableOn(zoneAt((r.y1 + r.y2) / 2), system.ink) : ink);
 
   // The shade under the text, as light as the text allows.
   const slidePhoto = photo && frame ? await sharp(photo.path).rotate().resize(frame.w, frame.h, { fit: 'fill' }).extract({ left: -frame.x, top: -frame.y, width: W, height: H }).removeAlpha().png().toBuffer() : undefined;
@@ -207,6 +233,64 @@ export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLa
     order.push('Photo');
   } else code.push(`Gimp.context_set_background(_color(${py(ground)}))
 _get('Background').edit_fill(Gimp.FillType.BACKGROUND)`);
+  let product: Rect | undefined;
+  if (poster) {
+    for (const [i, z] of zones.slice(1).entries()) {
+      const name = `Ground ${i + 2}`;
+      code.push(`_shape(${py(name)}, 0, ${Math.round(z.y1 * H)}, ${W}, ${H - Math.round(z.y1 * H)}, ${py(z.color)}, 0, 0)`);
+      order.push(name);
+    }
+    // The giant faded letter (the brand's initial) or word, tone on tone with its band.
+    if (layout.ghost) {
+      const g = px(layout.ghost.box);
+      const word = layout.ghost.kind === 'letter' ? (business.match(/\p{L}/u)?.[0] ?? '') : (ghostWord(slide) ?? '');
+      if (word) {
+        const under = zoneAt(clamp((g.y1 + g.y2) / 2, 0, H - 1));
+        const tone = luminance(under) > 0.8 ? mix(under, '#000000', 0.06) : mix(under, '#ffffff', 0.22);
+        const size = Math.round(Math.min((g.y2 - g.y1) / 0.75, layout.ghost.kind === 'letter' ? 2000 : ((g.x2 - g.x1) / Math.max(1, word.length)) * 1.6));
+        code.push(`_g = _text('Ghost', ${py(layout.ghost.kind === 'letter' ? word : word.toUpperCase())}, ${py(system.gimpHeading ?? 'Sans-serif Bold')}, ${size}, ${py(tone)}, 99999, -0.1, -0.02, 40)
+_g.set_offsets(int(${(g.x1 + g.x2) / 2} - _g.get_width() / 2), int(${(g.y1 + g.y2) / 2} - _g.get_height() / 2))`);
+        order.push('Ghost');
+      }
+    }
+    // The product standing on the reference's line, as big as its box allows.
+    if (photo) {
+      // The product starts under the text above it (two lines of headline, not the reference's one).
+      const center = (layout.photo.box.y1 + layout.photo.box.y2) / 2;
+      const textFoot = Math.max(0, ...blocks.filter((b) => b.role !== 'title' && b.box.y1 < center).map((b) => b.box.y1 + Math.max(b.box.y2 - b.box.y1, 0.1) + 0.02));
+      const box = px({ ...layout.photo.box, y1: Math.min(Math.max(layout.photo.box.y1, textFoot), layout.photo.box.y2 - 0.2) });
+      const cut = !!photo.cutout && !photo.matte;
+      const { width = 1, height = 1 } = await sharp(photo.path).metadata();
+      const c = photo.content ?? { x1: 0, y1: 0, x2: 1, y2: 1 };
+      const cw = (c.x2 - c.x1) * width;
+      const ch = (c.y2 - c.y1) * height;
+      // A tall product that doesn't fit above its line stands lower (down to 94 % of the
+      // slide) rather than shrink: the floor under it was empty anyway.
+      const stand = Math.round((layout.photo.standOn ?? layout.photo.box.y2) * H);
+      const room = cut ? Math.max(box.y2, Math.round(H * 0.94)) - box.y1 : box.y2 - box.y1;
+      const scale = Math.min((box.x2 - box.x1) / cw, room / ch, cut ? 1.5 : MAX_UP) * (slide.tweaks?.photoScale ?? 1);
+      const fw = Math.round(width * scale);
+      const fh = Math.round(height * scale);
+      const foot = cut ? Math.max(stand, box.y1 + Math.round(ch * scale)) : Math.round((box.y1 + box.y2) / 2 + (ch * scale) / 2);
+      const cx = (box.x1 + box.x2) / 2;
+      frame = { w: fw, h: fh, x: Math.round(cx - ((c.x1 + c.x2) / 2) * fw), y: Math.round(foot - c.y2 * fh) };
+      product = { x1: Math.round(frame.x + c.x1 * fw), y1: Math.round(frame.y + c.y1 * fh), x2: Math.round(frame.x + c.x2 * fw), y2: foot };
+      if (cut && layout.photo.shadow !== false) {
+        const sw = Math.round((product.x2 - product.x1) * 0.95);
+        const sh = Math.max(28, Math.round(sw * 0.1));
+        const file = path.join(dir, `s${slide.n}-shadow.png`);
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${sw + 2 * sh}" height="${sh * 3}"><defs><filter id="b"><feGaussianBlur stdDeviation="${sh * 0.35}"/></filter></defs><ellipse cx="${sw / 2 + sh}" cy="${sh * 1.5}" rx="${sw / 2}" ry="${sh / 2}" fill="#000" fill-opacity="${luminance(zoneAt(foot)) > 0.4 ? 0.28 : 0.45}" filter="url(#b)"/></svg>`;
+        await sharp(Buffer.from(svg)).png().toFile(file);
+        code.push(`_image('Shadow', ${py(file)}, ${Math.round((product.x1 + product.x2) / 2 - sw / 2 - sh)}, ${Math.round(foot - sh * 1.6)}, ${sw + 2 * sh}, ${sh * 3}, 0)`);
+        order.push('Shadow');
+      }
+      const sized = await crisp(photo.path, frame, path.join(dir, `s${slide.n}-sized.png`));
+      code.push(`_image('Photo', ${py(sized)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, 0)`);
+      // A photo that isn't a cutout goes whole, as a card with round corners.
+      if (!cut) code.push(`_round_mask(_get('Photo'), ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, ${Math.max(12, system.radius)})`);
+      order.push('Photo');
+    }
+  }
   if (alpha > 0) {
     const scrim = path.join(dir, `s${slide.n}-scrim.png`);
     await sharp(scrimSvg(alpha)).png().toFile(scrim);
@@ -219,7 +303,7 @@ _get('Background').edit_fill(Gimp.FillType.BACKGROUND)`);
   type Item = { y: number; block?: LayoutBlock; element?: (typeof layout.elements)[number]; i: number };
   // A card the text sits on: the photo blurred behind it, in the ground the text was made for.
   const panel = layout.elements.find((e) => e.type === 'panel');
-  if (panel && frame && photo) {
+  if (panel && frame && photo && !poster) {
     const r = px(panel.box);
     const file = path.join(dir, `s${slide.n}-panel.png`);
     await frostedPanel(photo.path, frame, r, light ? shade : mix(system.base, '#ffffff', 0.85), ink, Math.round(Math.min(r.x2 - r.x1, r.y2 - r.y1) * 0.08), file);
@@ -227,7 +311,8 @@ _get('Background').edit_fill(Gimp.FillType.BACKGROUND)`);
     order.push('Panel');
   }
   // The arrow says "swipe": the call to action's button says what to do instead.
-  const elements = layout.elements.filter((e) => e.type !== 'panel' && !(texts.cta && e.type === 'arrow_circle'));
+  // On a poster, pills and panels without their words read as empty bars: only lines and circles.
+  const elements = layout.elements.filter((e) => e.type !== 'panel' && !(texts.cta && e.type === 'arrow_circle') && !(poster && e.type === 'pill'));
   const items: Item[] = [...blocks.map((block, i) => ({ y: block.box.y1, block, i })), ...elements.map((element, i) => ({ y: element.box.y1, element, i }))].sort((a, b) => a.y - b.y);
   code.push('_push = 0\n_prev = 0');
   const flow = (top: number, height: string) => `_y = ${top} + _push
@@ -249,7 +334,7 @@ _prev = _y + ${height}`;
       const maxh = title ? H : Math.max((r.y2 - r.y1) * 2.2, b.role === 'headline' || b.role === 'body' ? 240 : 60);
       const emphasis = b.role === 'headline' || b.role === 'body' ? slide.emphasis : undefined;
       code.push(
-        `_t = _fit(${py(name)}, ${py(text)}, ${py(fontFor(system, b))}, ${size}, ${py(ink)}, ${r.x2 - r.x1}, ${Math.round(maxh)}, ${title ? -0.1 : 0.12}, ${b.tracking}, Gimp.TextJustification.${just}, ${py(emphasis ?? '')}, ${py(b.emphasis)}, ${py(accent)}, ${MIN[b.role]}, ${title ? 'False' : 'True'})`,
+        `_t = _fit(${py(name)}, ${py(text)}, ${py(fontFor(system, b))}, ${size}, ${py(inkAt(r))}, ${r.x2 - r.x1}, ${Math.round(maxh)}, ${title ? -0.1 : 0.12}, ${b.tracking}, Gimp.TextJustification.${just}, ${py(emphasis ?? '')}, ${py(b.emphasis)}, ${py(accent)}, ${MIN[b.role]}, ${title ? 'False' : 'True'})`,
       );
       if (b.role === 'cta') {
         // The button: the text on an accent pill, the pill in the flow.
@@ -264,8 +349,12 @@ _shape('Button', _bx, int(_y), _t.get_width() + 64, _t.get_height() + 36, ${py(a
         code.push(`_place(_t, ${py(b.align)}, ${r.x1}, ${r.x2}, _y)`);
       }
       order.push(name);
+      // On a poster the product (and its shadow) stand in front of a title behind it.
+      if (title && b.behindSubject && poster) {
+        for (const n of ['Shadow', 'Photo']) if (order.includes(n)) order.push(...order.splice(order.indexOf(n), 1));
+      }
       // The subject stands in front of a title behind it.
-      if (title && b.behindSubject && input.person && frame) {
+      if (title && b.behindSubject && input.person && frame && !poster) {
         const person = await crisp(input.person, frame, path.join(dir, `s${slide.n}-person.png`));
         code.push(`_image('Person', ${py(person)}, ${frame.x}, ${frame.y}, ${frame.w}, ${frame.h}, 0)`);
         order.push('Person');
@@ -300,9 +389,22 @@ Gimp.Selection.none(_img)`);
     order.push(name);
   }
 
-  // The logo where the reference signs, else at the foot under the text.
-  const logo = pickLogo(run, light ? '#1a1a1a' : '#f5f5f5');
-  if (logo) {
+  // The logo where the reference has its own, as big as that box; else where it signs, else
+  // at the foot under the text.
+  const logoBox = layout.logo ? px(layout.logo) : undefined;
+  const logoGround = logoBox ? zoneAt((logoBox.y1 + logoBox.y2) / 2) : light ? '#1a1a1a' : '#f5f5f5';
+  // One color on a poster: the other band's tone when it reads (Kauri's brown wordmark, Delgado's navy).
+  const logoInk = logoBox ? (zones.map((z) => z.color).find((c) => c !== logoGround && contrast(c, logoGround) >= 4.5) ?? readableOn(logoGround, system.ink)) : light ? '#ffffff' : '#111111';
+  const logo = await slideLogo(run, logoGround, logoInk, logoBox ? (logoBox.x2 - logoBox.x1) / Math.max(1, logoBox.y2 - logoBox.y1) : undefined);
+  if (logo && logoBox) {
+    const s = Math.min((logoBox.x2 - logoBox.x1) / logo.asset.width, (logoBox.y2 - logoBox.y1) / logo.asset.height);
+    const w = Math.round(logo.asset.width * s);
+    const h = Math.round(logo.asset.height * s);
+    const mid = (logoBox.x1 + logoBox.x2) / 2;
+    const x = Math.abs(mid - W / 2) < W * 0.1 ? Math.round(W / 2 - w / 2) : mid < W / 2 ? logoBox.x1 : logoBox.x2 - w;
+    code.push(`_image('Logo', ${py(logo.asset.path)}, ${x}, ${Math.round((logoBox.y1 + logoBox.y2) / 2 - h / 2)}, ${w}, ${h}, 0)`);
+    order.push('Logo');
+  } else if (logo) {
     const sig = layout.blocks.find((b) => b.role === 'signature');
     const head = layout.blocks.find((b) => b.role === 'headline') ?? layout.blocks[0];
     // On a card without a signature line, the logo signs the card: big, in its lower third.
@@ -315,9 +417,7 @@ Gimp.Selection.none(_img)`);
     const align = card ? 'center' : (sig ?? head).align;
     const x = align === 'left' ? at.x1 : align === 'right' ? at.x2 - w : Math.round((at.x1 + at.x2) / 2 - w / 2);
     const y = Math.min(H - 44 - h, at.y1);
-    if (logo.pill) code.push(`_shape('Logo plate', ${x - 18}, ${y - 12}, ${w + 36}, ${h + 24}, ${py(logo.pill)}, ${Math.round((h + 24) / 2)}, 0)`);
     code.push(`_image('Logo', ${py(logo.asset.path)}, ${x}, ${y}, ${w}, ${h}, 0)`);
-    if (logo.pill) order.push('Logo plate');
     order.push('Logo');
   }
 
@@ -338,13 +438,13 @@ _result = {_l.get_name(): list(_l.get_offsets()[-2:]) + [_l.get_width(), _l.get_
     : { x1: 0, y1: 0, x2: 0, y2: 0 };
   return {
     layout: slide.layout ?? 'photo_band',
-    ground: shade,
+    ground: poster ? zoneAt((text.y1 + text.y2) / 2) : shade,
     ink,
     photoFrame: frame,
     textBand: 'middle',
     split: false,
     shape: 'reference',
-    subject: faceBox,
+    subject: poster ? product : faceBox,
     visible: { x1: 0, y1: 0, x2: W, y2: H },
     text,
     textScale: 1,

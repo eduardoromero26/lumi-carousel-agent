@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import sharp from 'sharp';
 import { cutoutFlaw } from '../src/cutout.js';
 import { calmGround, contrast, normalizeSystem, paletteFor } from '../src/design.js';
-import { ghostWord, markEmphasis } from '../src/templates.js';
+import { ghostPlace, ghostWord, markEmphasis } from '../src/templates.js';
 
 test('a loud ground goes deep, or pastel when it is a light color', () => {
   // Hot pink, pure red: deep. Bright yellow, light pink: pastel.
@@ -64,4 +64,17 @@ test('the word behind a cutout is the emphasis, else the longest word, and fits 
   assert.equal(ghostWord({ headline: 'Tu próxima bici está aquí', emphasis: 'bici' }), 'BICI');
   assert.equal(ghostWord({ headline: 'Tu próxima bici está aquí' }), 'PRÓXIMA');
   assert.equal(ghostWord({ headline: 'Electrodomésticos', emphasis: undefined }), undefined);
+});
+
+test('the ghost word goes where it reads: above the head, never across the letters, else nowhere', () => {
+  // A narrow subject across the letters' full height still eats them: the word goes above its head.
+  const narrow = ghostPlace('LIBRE', { x1: 470, y1: 900, x2: 610, y2: 1250 }, 400);
+  assert.ok(narrow && narrow.cy < 900);
+  // Caruso: a standing model from under the headline to the foot hides the middle letters.
+  assert.equal(ghostPlace('LIBRE', { x1: 380, y1: 520, x2: 700, y2: 1300 }, 480), undefined);
+  // Mueblex: a wide sofa with room above it: the word moves up, its foot behind the sofa.
+  const above = ghostPlace('CURVO', { x1: 60, y1: 760, x2: 1020, y2: 1000 }, 300);
+  assert.ok(above && above.cy < 760);
+  // It always fits the slide's width.
+  assert.ok(above && above.size * 0.62 * 5 <= 1080 - 40);
 });

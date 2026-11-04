@@ -67,7 +67,8 @@ const MAX_RAGGED = 13;
 const MIN_CUTOUT_SIDE = 600;
 
 // Why a cutout is not good enough to show, or undefined when it is.
-export async function cutoutFlaw(file: string): Promise<string | undefined> {
+// person: a person can't have holes; a product can (a chair's back), up to a point.
+export async function cutoutFlaw(file: string, minPiece = MIN_MAIN_PIECE, person = false): Promise<string | undefined> {
   const { width = 0, height = 0 } = await sharp(file).metadata();
   if (Math.max(width, height) < MIN_CUTOUT_SIDE) return `too small (${width}x${height} px)`;
   const { data, info } = await sharp(file).ensureAlpha().extractChannel(3).resize(400, 400, { fit: 'inside' }).raw().toBuffer({ resolveWithObject: true });
@@ -106,7 +107,28 @@ export async function cutoutFlaw(file: string): Promise<string | undefined> {
     }
     biggest = Math.max(biggest, n);
   }
-  if (biggest / area < MIN_MAIN_PIECE) return `in pieces (the main piece is ${Math.round((100 * biggest) / area)} %)`;
+  if (biggest / area < (person ? Math.max(minPiece, 0.95) : minPiece)) return `in pieces (the main piece is ${Math.round((100 * biggest) / area)} %)`;
+  // Holes: background the cutout closes in (SAM missing an arm, the torso full of gaps).
+  // The background reached from the image's border is outside; what it can't reach is a hole.
+  const outside = new Uint8Array(w * h);
+  const queue: number[] = [];
+  for (let x = 0; x < w; x++) for (const y of [0, h - 1]) if (!on(x, y) && !outside[y * w + x]) (outside[y * w + x] = 1), queue.push(y * w + x);
+  for (let y = 0; y < h; y++) for (const x of [0, w - 1]) if (!on(x, y) && !outside[y * w + x]) (outside[y * w + x] = 1), queue.push(y * w + x);
+  while (queue.length) {
+    const j = queue.pop()!;
+    const x = j % w;
+    const y = (j - x) / w;
+    for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+      const k = ny * w + nx;
+      if (nx >= 0 && ny >= 0 && nx < w && ny < h && !on(nx, ny) && !outside[k]) {
+        outside[k] = 1;
+        queue.push(k);
+      }
+    }
+  }
+  let holes = 0;
+  for (let i = 0; i < w * h; i++) if (data[i] <= 127 && !outside[i]) holes++;
+  if (holes / area > (person ? 0.02 : 0.06)) return `full of holes (${Math.round((100 * holes) / area)} % of it)`;
   if (edge / Math.sqrt(area) > MAX_RAGGED) return 'ragged edge';
   // A bouquet that came out as its wrapping and a spray of petals: sparse in its own box and ragged.
   if (area / (w * h) < 0.3 && edge / Math.sqrt(area) > 10) return 'scattered';
@@ -120,11 +142,15 @@ export async function cutOut(run: Run, photo: Photo, subject: string, opts: { fr
   const id = `${photo.id}c`;
   const file = path.join(run.dir, 'photos', `${id}.png`);
   const hash = photoHash(photo.path);
-  const person = subject === 'person';
+  // A person whatever the director called them: a couple on a mattress is people too.
+  const person =
+    subject === 'person' ||
+    run.assets.find((a) => a.id === photo.asset)?.kind === 'people' ||
+    /(man|men|woman|women|couple|people|person|girl|boy|family|kid|child|children|baby|doctor|patient|model|student)s?/i.test(subject);
   // The same photo of the same brand was already cut out: SAM is not paid twice.
   const kept = opts.fresh ? undefined : brandCutout(hostOf(run.brief.url), hash, subject);
   if (kept) {
-    const flaw = await cutoutFlaw(kept.file);
+    const flaw = await cutoutFlaw(kept.file, MIN_MAIN_PIECE, person);
     if (flaw) {
       run.emit('status', 'designer', `The ${subject} cut out of photo ${photo.id} is ${flaw}: the photo goes whole.`);
       return undefined;
@@ -178,7 +204,7 @@ export async function cutOut(run: Run, photo: Photo, subject: string, opts: { fr
   const grounded = alpha.subarray((h - foot) * w).some((v) => v > 0);
   // Kept in the library even when flawed: SAM was paid, and the next run reads the flaw from the file.
   await keepInLibrary(run, 'cutout', subject, file, { source: hash, grounded, personality: run.system?.personality }).catch(() => undefined);
-  const flaw = await cutoutFlaw(file);
+  const flaw = await cutoutFlaw(file, MIN_MAIN_PIECE, person);
   if (flaw) {
     run.emit('status', 'designer', `The ${subject} cut out of photo ${photo.id} is ${flaw}: the photo goes whole.`);
     return undefined;
@@ -238,7 +264,8 @@ export async function keyOut(run: Run, photo: Photo): Promise<Photo | undefined>
   const out = await sharp(await sharp(rgb, { raw: { width, height, channels: 3 } }).joinChannel(matte, { raw: { width, height, channels: 1 } }).png().toBuffer())
     .trim({ threshold: 1 })
     .toFile(file);
-  if (out.width <= 16 || (await cutoutFlaw(file))) return undefined;
+  // A studio shot keyed off its plain ground may hold several real products (a stack and a loose roll).
+  if (out.width <= 16 || (await cutoutFlaw(file, 0.6))) return undefined;
   const keyed: Photo = { id, path: file, cutout: true, content: { x1: 0, y1: 0, x2: 1, y2: 1 }, note: `${photo.note ?? ''} (its plain background removed)`.trim() };
   run.photos = [...run.photos.filter((p) => p.id !== id), keyed];
   return keyed;

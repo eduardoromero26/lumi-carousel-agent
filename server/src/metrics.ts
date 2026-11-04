@@ -13,6 +13,11 @@ export type RunMetrics = {
   firstPass: number;
   rounds: number;
   setScore: number | null;
+  // Measured, not judged: how each slide came out in order, whether the middle ones share
+  // that skeleton, and the slides that reuse another slide's photo.
+  skeletons?: string[];
+  oneSkeleton?: boolean;
+  repeatedPhotos?: number;
   // Times each critic check answered "no", and each kind of lint problem, over every round.
   checks: Record<string, number>;
   lint: Record<string, number>;
@@ -45,6 +50,23 @@ export function lintKind(message: string): string {
 }
 
 type ReviewData = { approved?: boolean; score?: number; issues?: string[]; checks?: Record<string, { answer?: string; note?: string }> };
+
+// The cover and the call to action may stand apart; the slides between them may not.
+export function consistencyOf(run: Run): Pick<RunMetrics, 'skeletons' | 'oneSkeleton' | 'repeatedPhotos'> {
+  const last = new Map<number, string>();
+  for (const e of run.events) {
+    const shape = (e.data as { shape?: string } | undefined)?.shape;
+    if (e.slide !== undefined && shape && e.text.startsWith('Built from the')) last.set(e.slide, shape);
+  }
+  const skeletons = run.slides.map((s) => last.get(s.n) ?? '?');
+  const middle = skeletons.slice(1, -1).filter((s) => s !== '?');
+  const photos = (run.plan?.slides ?? []).flatMap((s) => (s.photo ? [s.photo] : []));
+  return {
+    skeletons,
+    oneSkeleton: middle.length < 2 || middle.every((s) => s === middle[0]),
+    repeatedPhotos: photos.length - new Set(photos).size,
+  };
+}
 
 export function metricsOf(run: Run): RunMetrics {
   const checks: Record<string, number> = {};
@@ -88,6 +110,7 @@ export function metricsOf(run: Run): RunMetrics {
     firstPass: run.slides.filter((s) => s.approved && s.rounds === 1).length,
     rounds: run.slides.reduce((sum, s) => sum + s.rounds, 0),
     setScore,
+    ...consistencyOf(run),
     checks,
     lint,
     templateIssues: run.slides.reduce((sum, s) => sum + (s.templateIssues?.length ?? 0), 0),
@@ -109,6 +132,9 @@ export type BatchSummary = {
   failed: number;
   stopped: number;
   setScore: number | null;
+  // Of the carousels measured: one skeleton in the middle, and the ones that repeat a photo.
+  oneSkeletonPct: number | null;
+  repeatedPhotoRuns: number;
   approvedPct: number | null;
   firstPassPct: number | null;
   roundsPerSlide: number | null;
@@ -131,6 +157,8 @@ export function summarize(batch: string, rows: QueueRow[]): BatchSummary {
   const finished = rows.flatMap((r) => (r.metrics ? [r.metrics] : []));
   const done = finished.filter((m) => m.status === 'done');
   const slides = done.reduce((sum, m) => sum + m.slides, 0);
+  // Runs recorded before the measure have no skeletons: they don't count either way.
+  const measured = done.filter((m) => m.oneSkeleton !== undefined);
   const checks: Record<string, number> = {};
   const lint: Record<string, number> = {};
   const errors: Record<string, number> = {};
@@ -150,6 +178,8 @@ export function summarize(batch: string, rows: QueueRow[]): BatchSummary {
     failed: count('failed'),
     stopped: count('stopped'),
     setScore: avg(done.flatMap((m) => (m.setScore === null ? [] : [m.setScore]))),
+    oneSkeletonPct: measured.length ? Math.round((100 * measured.filter((m) => m.oneSkeleton).length) / measured.length) : null,
+    repeatedPhotoRuns: done.filter((m) => (m.repeatedPhotos ?? 0) > 0).length,
     approvedPct: slides ? Math.round((100 * done.reduce((sum, m) => sum + m.approved, 0)) / slides) : null,
     firstPassPct: slides ? Math.round((100 * done.reduce((sum, m) => sum + m.firstPass, 0)) / slides) : null,
     roundsPerSlide: slides ? round(done.reduce((sum, m) => sum + m.rounds, 0) / slides, 2) : null,
@@ -179,6 +209,7 @@ export function reportMarkdown(rows: QueueRow[], summary: BatchSummary): string 
     `${s.total} websites · ${s.done} done · ${s.failed} failed · ${s.stopped} stopped · ${s.waiting + s.running} to go`,
     '',
     `- Set score (avg): ${s.setScore ?? '-'}/10`,
+    `- One skeleton in the middle slides: ${s.oneSkeletonPct ?? '-'} % · carousels that repeat a photo: ${s.repeatedPhotoRuns}`,
     `- Slides approved: ${s.approvedPct ?? '-'} %, first pass: ${s.firstPassPct ?? '-'} %, rounds per slide: ${s.roundsPerSlide ?? '-'}`,
     `- Cost per carousel: US$${s.avgCost ?? '-'} (total US$${s.totalCost}), minutes per carousel: ${s.avgMinutes ?? '-'}`,
     '',
@@ -193,12 +224,13 @@ export function reportMarkdown(rows: QueueRow[], summary: BatchSummary): string 
     '',
     '## Runs',
     '',
-    '| Website | Status | Set | Approved | First pass | Rounds | US$ | Min | Format | Notes | Run |',
-    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    '| Website | Status | Set | Skeletons | Approved | First pass | Rounds | US$ | Min | Format | Notes | Run |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ...rows.map((r) => {
       const m = r.metrics;
       const notes = m ? (m.error ?? top({ ...m.checks, ...m.lint }, 3).map(([k, v]) => `${k} ×${v}`).join(', ')) : r.note;
-      return `| ${cell(r.url)} | ${r.status} | ${cell(m?.setScore)} | ${m ? `${m.approved}/${m.slides}` : ''} | ${cell(m?.firstPass)} | ${cell(m?.rounds)} | ${cell(m?.cost)} | ${cell(m?.minutes)} | ${cell(m?.format)} | ${cell(notes)} | ${cell(r.runId)} |`;
+      const skeletons = m?.skeletons ? `${m.skeletons.join(' ')}${m.oneSkeleton ? '' : ' ✗'}${m.repeatedPhotos ? ` · ${m.repeatedPhotos} repeated photo(s)` : ''}` : '';
+      return `| ${cell(r.url)} | ${r.status} | ${cell(m?.setScore)} | ${cell(skeletons)} | ${m ? `${m.approved}/${m.slides}` : ''} | ${cell(m?.firstPass)} | ${cell(m?.rounds)} | ${cell(m?.cost)} | ${cell(m?.minutes)} | ${cell(m?.format)} | ${cell(notes)} | ${cell(r.runId)} |`;
     }),
     '',
   ];

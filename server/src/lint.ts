@@ -46,9 +46,10 @@ export async function lintSlide(gimp: Gimp, built: Built, slide: SlidePlan): Pro
     }
   }
   for (const [name, r] of present) {
-    if (r.x1 < 60 || r.x2 > W - 60 || r.y1 < 44 || r.y2 > H - 44) issues.push(`${name} is too close to the slide's edge (${r.x1},${r.y1} to ${r.x2},${r.y2})`);
-    // A reference layout keeps the reference's own margins.
-    if (!built.free && name !== 'the logo' && built.align === 'center' && Math.abs((r.x1 + r.x2) / 2 - W / 2) > 6) issues.push(`${name} is off-center`);
+    // The guides: 80 px margins on the sides (a few px of type bearing allowed), less above and below.
+    if (r.x1 < 76 || r.x2 > W - 76 || r.y1 < 44 || r.y2 > H - 44) issues.push(`${name} is too close to the slide's edge, outside the margin guides (${r.x1},${r.y1} to ${r.x2},${r.y2})`);
+    // Centered text sits on the center guide, a reference's too (it keeps only its own margins).
+    if (name !== 'the logo' && built.align === 'center' && Math.abs((r.x1 + r.x2) / 2 - W / 2) > (built.free ? 10 : 6)) issues.push(`${name} is off-center`);
     if (!built.free && name !== 'the logo' && name !== 'the underline' && built.align === 'left' && Math.abs(r.x1 - 80) > 8) issues.push(`${name} is not on the left margin`);
     if (built.card && area(inter(shrink(r, 3), built.card))) issues.push(`${name} overlaps the photo card`);
   }

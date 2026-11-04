@@ -1,4 +1,4 @@
-import { COMPOSITIONS, type DesignSystem } from './design.js';
+import { COMPOSITIONS, groundOf, groundTones, setGround, softGradient, toneOf, type DesignSystem, type GroundTone } from './design.js';
 import { sampleChoice, votesOn, type Stat } from './taste.js';
 import type { Run } from './run.js';
 
@@ -12,6 +12,9 @@ export type Look = {
   // How its photo slides really came out: 4 of 7 "overlay" brands came out as photo_top.
   shape?: string;
   colorSlides?: DesignSystem['colorSlides'];
+  // The ground's family and whether it is flat: 18 of 18 in a row were flat cream.
+  tone?: GroundTone;
+  ground?: DesignSystem['ground'];
   headingFont?: string;
   bodyFont?: string;
   device?: DesignSystem['device'];
@@ -19,6 +22,9 @@ export type Look = {
   align?: DesignSystem['align'];
   headlineCase?: DesignSystem['headlineCase'];
   hook?: string;
+  // The reel's shots in order ("photo_wall > deck > stack_list > end_card") and its close.
+  scenes?: string;
+  end?: string;
 };
 
 export const PERSONALITIES = ['editorial', 'bold', 'friendly', 'modern', 'heritage', 'clean'] as const;
@@ -119,7 +125,7 @@ export function hostOf(url?: string): string {
 export function lookOf(run: Run): Look {
   const s = run.system;
   const reel = run.events.findLast((e) => (e.data as { reel?: { shots?: { layout?: string }[] } } | undefined)?.reel?.shots?.length)?.data as
-    | { reel: { shots: { layout?: string }[] } }
+    | { reel: { shots: { layout?: string }[]; end?: string } }
     | undefined;
   return {
     host: hostOf(run.brief.url),
@@ -128,6 +134,8 @@ export function lookOf(run: Run): Look {
     composition: s ? (s.composition ?? 'stacked') : undefined,
     shape: s ? shapeOf(run) : undefined,
     colorSlides: s?.colorSlides,
+    tone: s?.base ? toneOf(s.base) : undefined,
+    ground: s?.ground,
     headingFont: s?.headingFont,
     bodyFont: s?.bodyFont,
     device: s?.device,
@@ -135,6 +143,8 @@ export function lookOf(run: Run): Look {
     align: s?.align,
     headlineCase: s?.headlineCase,
     hook: reel?.reel.shots[0]?.layout,
+    scenes: reel?.reel.shots.map((s) => s.layout).join(' > '),
+    end: reel?.reel.end,
   };
 }
 
@@ -156,13 +166,13 @@ export function shapeOf(run: Run): string {
 
 export function describeLooks(looks: Look[]): string {
   return looks
-    .map((l) => `- ${l.host}: ${l.shape && l.shape !== l.composition ? `${l.shape} (asked for ${l.composition})` : (l.composition ?? 'stacked')}${l.colorSlides ? `, color blocks ${l.colorSlides}` : ''}, ${l.headingFont ?? '?'} / ${l.bodyFont ?? '?'}, ${l.device?.replace('_', ' ')}, logo ${l.logoPosition?.replace('_', ' ')}, ${l.align}, ${l.headlineCase === 'upper' ? 'capitals' : 'as is'}`)
+    .map((l) => `- ${l.host}: ${l.shape && l.shape !== l.composition ? `${l.shape} (asked for ${l.composition})` : (l.composition ?? 'stacked')}${l.tone ? `, ${l.ground === 'gradient' ? 'gradient' : 'flat'} ${l.tone} ground` : ''}${l.colorSlides ? `, color blocks ${l.colorSlides}` : ''}, ${l.headingFont ?? '?'} / ${l.bodyFont ?? '?'}, ${l.device?.replace('_', ' ')}, logo ${l.logoPosition?.replace('_', ' ')}, ${l.align}, ${l.headlineCase === 'upper' ? 'capitals' : 'as is'}`)
     .join('\n');
 }
 
 // The website's own fonts always win; a fallback font another brand just used is
 // swapped for the next one of the same personality.
-export function freshen(system: DesignSystem, siteFonts: string[], recent: Look[], hasLabels: boolean, stats: Stat[] = []): string[] {
+export function freshen(system: DesignSystem, siteFonts: string[], recent: Look[], hasLabels: boolean, stats: Stat[] = [], brandColors: string[] = []): string[] {
   const changes: string[] = [];
   const own = new Set(siteFonts.map((f) => f.toLowerCase()));
   const last = recent.slice(0, 5);
@@ -205,6 +215,24 @@ export function freshen(system: DesignSystem, siteFonts: string[], recent: Look[
     const composition = pick('composition', COMPOSITIONS.filter((c) => c !== system.composition && c !== 'overlay' && !previous.includes(c)), laidOut);
     changes.push(`composition ${system.composition} → ${composition}`);
     system.composition = composition;
+  }
+  // The ground's family follows the composition's rule: never two of five alike. The
+  // brand keeps its hue (deep, pastel); an all-neutral brand only swaps light and dark.
+  const colors = [system.accent, ...brandColors];
+  const tone = toneOf(system.base);
+  const toned = (t: string) => last.filter((l) => l.tone === t).length;
+  if (toned(tone) >= 2 || disliked('ground tone', tone)) {
+    const options = groundTones(colors).filter((t) => t !== tone);
+    const next = options.length ? pick('ground tone', options, toned) : undefined;
+    if (next && toned(next) < toned(tone) && toneOf(groundOf(next, colors)) === next) {
+      const before = system.base;
+      setGround(system, groundOf(next, colors), brandColors);
+      changes.push(`ground ${before} (${tone}) → ${system.base} (${next}), text ${system.ink}, accent ${system.accent}`);
+    }
+  }
+  // A soft gradient of the ground when most of the last five were flat.
+  if (system.ground === 'flat' && most(last.filter((l) => l.ground !== 'gradient').length) && softGradient(system)) {
+    changes.push(`a soft gradient ground ${system.base} → ${system.ground2}`);
   }
   const blocks = (c: string) => last.filter((l) => l.colorSlides === c).length;
   if (most(blocks(system.colorSlides))) {

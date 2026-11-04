@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { contrast, luminance, normalizeSystem } from '../src/design.js';
+import { contrast, luminance, normalizeSystem, type DesignSystem } from '../src/design.js';
 import { applyReference, normalizeStyle, type Reference } from '../src/references.js';
 import type { Plan } from '../src/run.js';
 
@@ -34,7 +34,7 @@ test("a reader's answer keeps only choices the templates have", () => {
 });
 
 test('the reference wins on its choices and the brand keeps its colors', () => {
-  const system = normalizeSystem({ base: '#1b1b1b', ink: '#ffffff', accent: '#c4561d', composition: 'split', colorSlides: 'both', typeScale: 'loud', decor: { element: 'gold brush strokes in the corner' } }, []);
+  const system = normalizeSystem({ base: '#1b1b1b', ink: '#ffffff', accent: '#c4561d', composition: 'split', colorSlides: 'both', typeScale: 'loud', decor: { element: 'gold brush strokes in the corner' } as DesignSystem['decor'] }, []);
   const p = plan();
   const changes = applyReference(system, p, ref({ composition: 'window', ground: 'light', colorSlides: 'none', typeScale: 'calm', decor: false, emphasis: true }));
   assert.equal(system.composition, 'window');

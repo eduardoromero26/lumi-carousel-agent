@@ -1,3 +1,4 @@
+import { toneOf } from './design.js';
 import type { Run } from './run.js';
 
 // The owner's taste, learned from votes: each vote keeps the design choices of what
@@ -34,6 +35,7 @@ export function featuresOf(run: Run, target: string): Features {
   put('align', s?.align);
   put('case', s?.headlineCase);
   put('ground', s ? (s.ground === 'gradient' ? 'gradient' : 'flat') + (s.grain ? ' + grain' : '') : undefined);
+  put('ground tone', s?.base ? toneOf(s.base) : undefined);
   put('decor', s ? (s.decor?.elementFile ? 'element' : s.decor?.textureFile ? 'texture' : 'none') : undefined);
   put('type', s?.typeScale);
   put('color slides', s?.colorSlides);

@@ -48,6 +48,21 @@ test('counts first passes, failed checks, lint and the set score of a run', () =
   assert.equal(m.error, undefined);
 });
 
+test('measures whether the middle slides share one skeleton and repeat no photo', () => {
+  const built = (slide: number, shape: string) => ({ at: at(slide), type: 'status' as const, agent: 'designer' as const, slide, text: 'Built from the "product" template.', data: { shape } });
+  const slides = [1, 2, 3, 4, 5].map((n) => ({ n, file: `s${n}.png`, approved: true, rounds: 1 }));
+  // Cielo Hamacas, 906725e5: frosted panels on 1 and 3, photo above on 2 and 4.
+  const split = runWith([built(1, 'overlay'), built(2, 'photo_top'), built(3, 'overlay'), built(4, 'photo_top'), built(5, 'card')], slides);
+  split.plan = { slides: [{ photo: 'p1' }, { photo: 'p2' }, { photo: 'p2' }, { photo: 'p3' }, { photo: null }] } as unknown as Run['plan'];
+  assert.deepEqual(metricsOf(split).skeletons, ['overlay', 'photo_top', 'overlay', 'photo_top', 'card']);
+  assert.equal(metricsOf(split).oneSkeleton, false);
+  assert.equal(metricsOf(split).repeatedPhotos, 1);
+  // A rebuild for the set counts, not the first build; the cover and the CTA may differ.
+  const fixed = runWith([built(1, 'overlay'), built(2, 'photo_top'), built(3, 'overlay'), built(3, 'photo_top'), built(4, 'photo_top'), built(5, 'card')], slides);
+  assert.equal(metricsOf(fixed).oneSkeleton, true);
+  assert.equal(metricsOf(fixed).repeatedPhotos, 0);
+});
+
 test('tells a stopped run from a failed one', () => {
   const stopped = runWith([{ at: at(0), type: 'error', agent: 'system', text: 'Stopped by the owner.' }], [], 'failed');
   const failed = runWith([{ at: at(0), type: 'error', agent: 'system', text: 'No photos and no website to work with.' }], [], 'failed');

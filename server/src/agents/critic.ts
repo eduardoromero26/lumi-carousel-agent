@@ -152,7 +152,8 @@ export async function reviewSet(plan: Plan, slidePngs: { n: number; file: string
           type: 'text',
           text: [
             `Carousel: ${plan.concept}`,
-            `Slides in order: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role} "${s.headline}"`).join('; ')}.`,
+            // The words of each slide, so the critic can tell whether its photo shows them.
+            `Slides in order: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role} "${s.headline}"${s.body ? ` / "${s.body}"` : ''}`).join('; ')}.`,
             `The visual system they must share: ${system}`,
             ownerLessons(),
             'The contact sheet, left to right:',

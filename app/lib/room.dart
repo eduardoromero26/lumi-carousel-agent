@@ -10,7 +10,7 @@ import 'package:web/web.dart' as web;
 
 import 'api.dart';
 import 'i18n.dart';
-import 'main.dart' show LanguageToggle, mono, showBig;
+import 'main.dart' show mono, showBig;
 
 // Design it live: a run told from the agents' side. The team lights up as each agent
 // works, the slide is built in GIMP (its real layers, read from the .xcf), the critic is
@@ -940,6 +940,8 @@ class _Header extends StatelessWidget {
             if (onExit != null) IconButton(tooltip: 'Close'.tr, onPressed: onExit, icon: const Icon(Icons.close_rounded, color: _C.muted)),
             // Standalone (?view=room) there is no app to close back to: the arrow goes to the list.
             if (onExit == null) IconButton(tooltip: 'All carousels'.tr, onPressed: onBack, icon: const Icon(Icons.arrow_back_rounded, color: _C.muted)),
+            // The website and its status on the left; the free space goes between them and the counters.
+            Expanded(child: Row(children: [
             Container(
               width: 34,
               height: 34,
@@ -961,11 +963,10 @@ class _Header extends StatelessWidget {
             ),
             const SizedBox(width: 14),
             _Pill(text: status.$1, color: status.$2, blink: status.$3),
-            const Spacer(),
+            ])),
+            // The run's counters and Stop, in the right corner.
             ?toggle,
             const SizedBox(width: 12),
-            const LanguageToggle(),
-            const SizedBox(width: 8),
             if (started != null) _Elapsed(started: started!, until: until),
             if (spend != null)
               Container(

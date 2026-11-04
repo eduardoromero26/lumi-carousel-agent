@@ -27,6 +27,7 @@ export function featuresOf(run: Run, target: string): Features {
     return f;
   }
   put('composition', s?.composition ?? (s ? 'stacked' : undefined));
+  put('reference', run.styleRef?.title);
   put('personality', s?.personality);
   put('heading font', s?.headingFont);
   put('body font', s?.bodyFont);

@@ -196,10 +196,12 @@ export async function referenceFromRun(run: Run): Promise<Reference> {
   });
 }
 
-export function describeReference(ref: Reference): string {
+export function describeReference(ref: Reference, by: 'owner' | 'agent' = 'owner'): string {
   const s = ref.style;
   return [
-    `The owner chose a reference for this carousel's style (${ref.source === 'carousel' ? 'one of our own carousels they loved' : "another studio's design they like"}). Follow its style closely with this brand's own colors, logo and photos; never its words, brand or image.`,
+    by === 'agent'
+      ? `You picked this reference from the agency's library for this carousel's style. Follow its style closely with this brand's own colors, logo and photos; never its words, brand or image.`
+      : `The owner chose a reference for this carousel's style (${ref.source === 'carousel' ? 'one of our own carousels they loved' : "another studio's design they like"}). Follow its style closely with this brand's own colors, logo and photos; never its words, brand or image.`,
     `Its choices: composition "${s.composition}", ${s.ground === 'light' ? 'a light neutral ground' : s.ground === 'dark' ? 'a dark ground' : "a deep or pastel tone of the brand's color as the ground"}, color blocks "${s.colorSlides}", ${s.typeScale} type, headlines ${s.headlineCase === 'upper' ? 'in capitals' : 'as written'}, aligned ${s.align}, products ${s.products === 'loose' ? 'loose on the ground' : 'on cards'}, device "${s.device}", personality ${s.personality}, ${s.decor ? 'with a decor piece' : 'no decor'}${s.emphasis ? ', a key word of each headline in the accent' : ''}.`,
     s.notes ? `What makes it look like this: ${s.notes}` : '',
   ]
@@ -214,7 +216,7 @@ const tint = (a: string, b: string, t: number) => {
 
 // After the art director and the variety rules: the reference wins on every choice it
 // makes, the brand keeps its colors. Returns what changed, for the run's log.
-export function applyReference(system: DesignSystem, plan: Plan, ref: Reference, brandColors: string[] = []): string[] {
+export function applyReference(system: DesignSystem, plan: Plan, ref: Reference, brandColors: string[] = [], { boxes = true } = {}): string[] {
   const s = ref.style;
   const changes: string[] = [];
   const set = <K extends keyof DesignSystem>(key: K, value: DesignSystem[K], label: string) => {
@@ -223,7 +225,7 @@ export function applyReference(system: DesignSystem, plan: Plan, ref: Reference,
     system[key] = value;
   };
   set('composition', s.composition, 'composition');
-  if (s.layout) {
+  if (s.layout && boxes) {
     system.layout = s.layout;
     changes.push('photo slides laid out after the reference, box by box');
   }
@@ -239,7 +241,7 @@ export function applyReference(system: DesignSystem, plan: Plan, ref: Reference,
   // "brand": the deep tone of the brand (navy for Delgado), never a pale tint of its accent.
   const brand = () => (toneOf(system.base) === 'deep' || toneOf(system.base) === 'pastel' ? system.base : groundOf('deep', colors));
   // Only where the ground shows: under a full-bleed photo the bands are the photo's own.
-  const zones = s.layout?.zones && s.layout.zones.length > 1 && s.layout.photo.mode !== 'full' ? s.layout.zones : undefined;
+  const zones = boxes && s.layout?.zones && s.layout.zones.length > 1 && s.layout.photo.mode !== 'full' ? s.layout.zones : undefined;
   // Two tones: each band of the reference in the brand's colors; the text's ground is the
   // band where the headline sits.
   if (zones) {

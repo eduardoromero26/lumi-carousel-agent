@@ -28,6 +28,7 @@ import sharp from 'sharp';
 import { applyShotFixes, endOrder, fitBeats, inspectReel, readLook, renderReel, repairReel, validateReel, writeReel, writeReelDocs, type ShotAction, type Sound, type Timed } from './reel.js';
 import { findMusic, findSfx } from './music.js';
 import { recentReels } from './db.js';
+import { reference } from './references.js';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -733,7 +734,8 @@ async function unifySkeleton(run: Run, gimp: Gimp, plan: Plan, built: Map<number
 // With final, it only judges: the set's last word, after the fixes. Slides adjusted.
 async function reviewWholeSet(run: Run, gimp: Gimp, plan: Plan, built: Map<number, Built>, measuredBefore = new Map<number, string[]>(), final = false): Promise<number> {
   const files = run.slides.map((s) => ({ n: s.n, file: path.join(run.dir, s.file) }));
-  const review = await reviewSet(plan, files, run.styleNotes ?? '');
+  const ref = run.styleRef ? reference(run.styleRef.id) : undefined;
+  const review = await reviewSet(plan, files, run.styleNotes ?? '', ref ? { file: ref.file, title: ref.title } : undefined);
   const sheetFile = path.join(run.dir, 'snaps', `set-${Date.now()}.jpg`);
   await writeFile(sheetFile, review.sheet);
   const describe = (s: (typeof review.slides)[number]) =>

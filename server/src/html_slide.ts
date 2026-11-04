@@ -76,7 +76,7 @@ export async function designHtmlSlide(input: HtmlInput): Promise<{ png: string; 
   }
   if (input.logo) {
     await copyFile(input.logo, path.join(dir, 'logo.png'));
-    files.push("logo.png: the brand's logo (keep its proportions; where the reference has its logo)");
+    files.push("logo.png: the brand's logo, on this slide always (keep its proportions; where the reference has its logo, else a clean corner)");
   }
   // The decor kit: optional, where the reference has that kind of ground or object.
   const kit: [keyof NonNullable<HtmlInput['decor']>, string][] = [

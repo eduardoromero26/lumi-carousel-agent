@@ -266,7 +266,8 @@ const server = http.createServer(async (req, res) => {
     // POST /api/runs/:id/reel: only the 30 s reel, keeping the card videos already made
     // POST /api/runs/:id/motion: animate the approved carousel with HyperFrames, then the reel
     if (req.method === 'POST' && (parts[3] === 'motion' || parts[3] === 'reel')) {
-      if (!config.reels) return json(res, 404, { error: 'Reels are off (REELS=1 in server/.env turns them on)' });
+      // REELS=1 makes one after every carousel; without it the owner still asks for one.
+      if (!config.reels && parts[3] === 'motion') return json(res, 404, { error: 'Reels are off (REELS=1 in server/.env turns them on)' });
       if (!run) return json(res, 404, { error: 'Run not found' });
       if (run.status !== 'done' || !run.slides.length) return json(res, 409, { error: 'The carousel is not finished yet' });
       if (busy) return json(res, 409, { error: 'Another carousel is being made.' });
@@ -443,10 +444,10 @@ async function downloadZip(run: Run, res: http.ServerResponse): Promise<void> {
     const card = path.join(renders, `card-${s.n}.mp4`);
     if (existsSync(card)) zip.file(card, { name: `videos/card-${s.n}.mp4` });
   }
-  for (const name of config.reels ? ['reel.mp4', 'reel-cover.png'] : []) {
+  for (const name of ['reel.mp4', 'reel-cover.png']) {
     if (existsSync(path.join(renders, name))) zip.file(path.join(renders, name), { name: `reel/${name}` });
   }
-  for (const name of config.reels ? ['SPEC.md', 'REVIEW.md'] : []) {
+  for (const name of ['SPEC.md', 'REVIEW.md']) {
     if (existsSync(path.join(run.dir, 'motion', name))) zip.file(path.join(run.dir, 'motion', name), { name: `reel/${name}` });
   }
   if (run.plan) zip.append(`${run.plan.caption}\n\n${run.plan.hashtags.join(' ')}\n`, { name: 'caption.txt' });

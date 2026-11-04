@@ -93,7 +93,8 @@ function groundOfRun(id: string): Pick<Look, 'tone' | 'ground'> {
 // Finished carousels, newest first, with the owner's votes.
 export function listCarousels(): unknown[] {
   const rows = db.prepare(`SELECT id, post FROM carousels WHERE status = 'done' AND slides > 0 ORDER BY created_at DESC`).all() as { id: string; post: string }[];
-  return rows.map((r) => ({ ...JSON.parse(r.post), ...(config.reels ? {} : { reel: null, reelCover: null }), votes: votesOf(r.id), stars: starsOf(r.id) }));
+  // A reel the owner asked for shows in the feed even with automatic reels off.
+  return rows.map((r) => ({ ...JSON.parse(r.post), votes: votesOf(r.id), stars: starsOf(r.id) }));
 }
 
 // 1 likes, -1 dislikes, 0 takes the vote back; stars (on the carousel) set the value

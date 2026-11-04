@@ -1,5 +1,12 @@
 // Spanish for the room area. The key is the English text exactly as in the code.
 const Map<String, String> esRoom = {
+  'Make the 30 s reel': 'Hacer el reel de 30 s',
+  'Plan the shots': 'Planear las tomas',
+  'Music': 'Música',
+  'Render in HyperFrames': 'Render en HyperFrames',
+  'Critic review': 'Revisión del crítico',
+  'Reel ready': 'Reel listo',
+  'The director is picking the music and its beat': 'El director elige la música y su ritmo',
   'Change saved: the designer makes it as soon as the carousel is done.': 'Cambio guardado: el diseñador lo hace en cuanto termine el carrusel.',
   'The other slides are still being made: your change waits and the designer makes it when the carousel is done.': 'Las demás láminas se siguen haciendo: tu cambio espera y el diseñador lo hace cuando termine el carrusel.',
   // The team, for the demo

@@ -2313,7 +2313,8 @@ class _Progress extends StatelessWidget {
   final _View view;
 
   static const carousel = ['Read the website', 'Plan', 'Art direction', 'Design in GIMP', 'Review', 'Ready'];
-  static const withReel = ['Read the website', 'Plan', 'Art direction', 'Design in GIMP', 'Review', 'Reel', 'Ready'];
+  // The reel has its own steps, once the carousel is done.
+  static const reel = ['Plan the shots', 'Music', 'Render in HyperFrames', 'Critic review', 'Reel ready'];
 
 
   @override
@@ -2322,11 +2323,17 @@ class _Progress extends StatelessWidget {
     final slides = v.slides.values.toList();
     final total = slides.length;
     final done = slides.where((s) => s.done).length;
-    final steps = v.reelPhase ? withReel : carousel;
+    final steps = v.reelPhase ? reel : carousel;
     final step = v.finished
         ? steps.length - 1
         : v.reelPhase
-            ? 5
+            ? (v.reelShots == null
+                ? 0
+                : v.reelMusic == null
+                    ? 1
+                    : v.reelVerdicts.isEmpty
+                        ? 2
+                        : 3)
             : v.site == null
                 ? 0
                 : v.plan == null
@@ -2338,7 +2345,15 @@ class _Progress extends StatelessWidget {
                             : 4;
     final now = v.error != null
         ? 'The run stopped'.tr
-        : switch (step) {
+        : v.reelPhase
+            ? switch (step) {
+                0 => 'The director is planning the 30 s reel'.tr,
+                1 => 'The director is picking the music and its beat'.tr,
+                2 => '${'Making the 30 s reel in HyperFrames'.tr}${v.reelRound > 0 ? ' (${'round {n}'.trf({'n': v.reelRound + 1})})' : ''}',
+                3 => 'The critic is checking the reel shot by shot'.tr,
+                _ => 'Your carousel and its reel are ready'.tr,
+              }
+            : switch (step) {
             0 => 'The analyst is reading your website'.tr,
             1 => 'The director is planning the story'.tr,
             2 when v.planUntil != null => 'Your turn: review the director\'s plan'.tr,
@@ -3615,6 +3630,18 @@ void _showReady(BuildContext context, String runId, _View view) {
                 onPressed: () => web.window.open(lumiUrl, '_blank'),
                 icon: const Icon(Icons.send_rounded, size: 18),
                 label: Text('Post from Lumi'.tr),
+              ),
+              OutlinedButton.icon(
+                onPressed: () async {
+                  Navigator.pop(context);
+                  try {
+                    await Api.reel(runId);
+                  } catch (e) {
+                    if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
+                  }
+                },
+                icon: const Icon(Icons.movie_creation_outlined, size: 18),
+                label: Text('Make the 30 s reel'.tr),
               ),
               FilledButton.icon(
                 onPressed: () => Navigator.pop(context),

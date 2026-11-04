@@ -104,7 +104,7 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   const changes = freshen(system, onGoogle, recent, !!plan.slides[0]?.eyebrow, stats, run.brief.brandColors ?? []);
   if (changes.length && !ref) run.emit('status', 'designer', `So it doesn't look like the last brands: ${changes.join('; ')}.`);
   if (ref) {
-    const followed = applyReference(system, plan, ref, run.brief.brandColors ?? [], { boxes: !!own });
+    const followed = applyReference(system, plan, ref, run.brief.brandColors ?? [], { boxes: !!own || ref.style.layout?.photo.mode === 'full' });
     run.emit('status', 'designer', `In the style of the reference "${ref.title}"${followed.length ? `: ${followed.join('; ')}` : ''}.`, { data: { url: referenceUrlOf(ref) } });
   }
   // Slides without a photo get a generated image behind them, never a word wall.
@@ -132,6 +132,8 @@ export async function designSystem(run: Run, plan: Plan, gimp: Gimp): Promise<De
   system.gimpBody = bodyWeights[system.bodyWeight] ?? body[system.bodyWeight];
   system.gimpBodyBold = body[700] ?? system.gimpHeading;
   if (system.layout) system.layoutFonts = await layoutFonts(gimp, system);
+  // The slides imitate the reference in HTML (html_slide.ts), the templates as the fallback.
+  if (ref) system.htmlRef = ref.file;
   run.emit('thought', 'designer', `Visual system for every slide: ${describeSystem(system)}`, { data: { system, screens: (run.site?.screens ?? []).map((s) => run.fileUrl(s)) } });
   return system;
 }

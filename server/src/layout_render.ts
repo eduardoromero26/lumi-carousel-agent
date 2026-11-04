@@ -176,13 +176,21 @@ export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLa
   // A call to action the reference has no box for: a button under the lowest text block.
   if (texts.cta && !blocks.some((b) => b.role === 'cta')) {
     const last = blocks.filter((b) => b.role !== 'signature').sort((a, b) => b.box.y2 - a.box.y2)[0];
-    if (last) blocks.push({ role: 'cta', box: { x1: last.box.x1, y1: Math.min(0.86, last.box.y2 + 0.04), x2: Math.min(1, last.box.x1 + 0.5), y2: Math.min(0.9, last.box.y2 + 0.08) }, align: last.align, case: 'as_is', weight: 'bold', font: 'sans', tracking: 0.02, behindSubject: false, emphasis: 'none' });
+    // Centered text gets a centered button; otherwise it starts where the text starts.
+    const [bx1, bx2] = last && last.align === 'center' ? [0.25, 0.75] : [last?.box.x1 ?? 0, Math.min(1, (last?.box.x1 ?? 0) + 0.5)];
+    if (last) blocks.push({ role: 'cta', box: { x1: bx1, y1: Math.min(0.86, last.box.y2 + 0.04), x2: bx2, y2: Math.min(0.9, last.box.y2 + 0.08) }, align: last.align, case: 'as_is', weight: 'bold', font: 'sans', tracking: 0.02, behindSubject: false, emphasis: 'none' });
   }
   const faceBox = faces && frame ? onSlide(faces, frame) : undefined;
   // Text over a face: first the text moves below the face (or above it), the reference's
   // own boxes together, as the reference keeps its text under the face; only then a column
   // narrows to end beside it.
-  const decor = [...layout.elements];
+  // A pill or a panel whose words this slide doesn't have reads as an empty bar: it goes.
+  const near = (e: { x1: number; y1: number; x2: number; y2: number }) =>
+    blocks.some((b) => !(e.x2 < b.box.x1 - 0.02 || e.x1 > b.box.x2 + 0.02 || e.y2 < b.box.y1 - 0.02 || e.y1 > b.box.y2 + 0.02));
+  const decor = layout.elements.filter((e) => (e.type !== 'pill' && e.type !== 'panel') || near(e.box));
+  // Panels behind the headline's lines are a highlight (a marker under the words), not a card.
+  const headBox = blocks.find((b) => b.role === 'headline')?.box;
+  const highlight = !!headBox && decor.filter((e) => e.type === 'panel' && e.box.y1 < headBox.y2 && e.box.y2 > headBox.y1).length >= 1 && decor.filter((e) => e.type === 'panel').every((e) => e.box.y2 - e.box.y1 < 0.09);
   if (faceBox && blocks.some((b) => !b.behindSubject && overlap(px(b.box), faceBox))) {
     const moving = blocks.filter((b) => !b.behindSubject && b.role !== 'signature');
     const top = Math.min(...moving.map((b) => b.box.y1));
@@ -220,7 +228,10 @@ export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLa
   const shade = poster ? system.base : light ? mix(system.base, '#000000', 0.6) : mix(system.base, '#ffffff', 0.7);
   const accent = contrast(system.accent, shade) >= 3 ? system.accent : ink;
   // Without a photo the ground is the shade the text was made for.
-  const ground = poster ? zones[0].color : light ? shade : luminance(system.base) > 0.6 ? system.base : mix(system.base, '#ffffff', 0.8);
+  const ground = poster ? zones[0].color : light ? (luminance(system.base) < 0.3 ? system.base : mix(system.accent, '#000000', 0.35)) : luminance(system.base) > 0.6 ? system.base : mix(system.base, '#ffffff', 0.8);
+  // The highlight under the headline: a light tone of the brand, the headline dark on it.
+  const marker = mix(system.accent, '#ffffff', 0.62);
+  const markerInk = readableOn(marker, '#1d1b19');
   // On a poster each block reads on the band under it.
   const inkAt = (r: Rect) => (poster ? readableOn(zoneAt((r.y1 + r.y2) / 2), system.ink) : ink);
 
@@ -236,7 +247,7 @@ export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLa
     );
   };
   let alpha = 0;
-  if (area && slidePhoto && !layout.elements.some((e) => e.type === 'panel')) {
+  if (area && slidePhoto && (highlight || !decor.some((e) => e.type === 'panel'))) {
     for (const a of [layout.scrim === 'none' ? 0 : 0.3, 0.45, 0.6, 0.75, 0.88]) {
       alpha = a;
       const shaded = a ? await sharp(slidePhoto).composite([{ input: scrimSvg(a) }]).png().toBuffer() : slidePhoto;
@@ -323,7 +334,7 @@ _g.set_offsets(int(${(g.x1 + g.x2) / 2} - _g.get_width() / 2), int(${(g.y1 + g.y
   // down, keeping at least the reference's gap.
   type Item = { y: number; block?: LayoutBlock; element?: (typeof layout.elements)[number]; i: number };
   // A card the text sits on: the photo blurred behind it, in the ground the text was made for.
-  const panel = decor.find((e) => e.type === 'panel');
+  const panel = highlight ? undefined : decor.find((e) => e.type === 'panel');
   if (panel && frame && photo && !poster) {
     const r = px(panel.box);
     const file = path.join(dir, `s${slide.n}-panel.png`);
@@ -334,6 +345,7 @@ _g.set_offsets(int(${(g.x1 + g.x2) / 2} - _g.get_width() / 2), int(${(g.y1 + g.y
   // The arrow says "swipe": the call to action's button says what to do instead.
   // On a poster, pills and panels without their words read as empty bars: only lines and circles.
   const elements = decor.filter((e) => e.type !== 'panel' && !(texts.cta && e.type === 'arrow_circle') && !(poster && e.type === 'pill'));
+  const marked = highlight && blocks.some((b) => b.role === 'headline');
   const items: Item[] = [...blocks.map((block, i) => ({ y: block.box.y1, block, i })), ...elements.map((element, i) => ({ y: element.box.y1, element, i }))].sort((a, b) => a.y - b.y);
   code.push('_push = 0\n_prev = 0');
   const flow = (top: number, height: string) => `_y = ${top} + _push
@@ -354,8 +366,9 @@ _prev = _y + ${height}`;
       const size = title ? Math.round((r.y2 - r.y1) / 0.72) : b.role === 'headline' ? clamp(Math.round((r.y2 - r.y1) * 0.75), START.headline, 110) : START[b.role];
       const maxh = title ? H : Math.max((r.y2 - r.y1) * 2.2, b.role === 'headline' || b.role === 'body' ? 240 : 60);
       const emphasis = b.role === 'headline' || b.role === 'body' ? slide.emphasis : undefined;
+      const onMarker = marked && b.role === 'headline';
       code.push(
-        `_t = _fit(${py(name)}, ${py(text)}, ${py(fontFor(system, b))}, ${size}, ${py(inkAt(r))}, ${r.x2 - r.x1}, ${Math.round(maxh)}, ${title ? -0.1 : 0.12}, ${b.tracking}, Gimp.TextJustification.${just}, ${py(emphasis ?? '')}, ${py(b.emphasis)}, ${py(accent)}, ${MIN[b.role]}, ${title ? 'False' : 'True'})`,
+        `_t = _fit(${py(name)}, ${py(text)}, ${py(fontFor(system, b))}, ${size}, ${py(onMarker ? markerInk : inkAt(r))}, ${r.x2 - r.x1}, ${Math.round(maxh)}, ${title ? -0.1 : 0.12}, ${b.tracking}, Gimp.TextJustification.${just}, ${py(emphasis ?? '')}, ${py(b.emphasis)}, ${py(onMarker ? markerInk : accent)}, ${MIN[b.role]}, ${title ? 'False' : 'True'})`,
       );
       if (b.role === 'cta') {
         // The button: the text on an accent pill, the pill in the flow.
@@ -368,6 +381,11 @@ _shape('Button', _bx, int(_y), _t.get_width() + 64, _t.get_height() + 36, ${py(a
       } else {
         code.push(flow(r.y1, '_t.get_height()'));
         code.push(`_place(_t, ${py(b.align)}, ${r.x1}, ${r.x2}, _y)`);
+        if (marked && b.role === 'headline') {
+          code.push(`_o = _t.get_offsets()[-2:]
+_shape('Highlight', _o[0] - 22, _o[1] - 10, _t.get_width() + 44, _t.get_height() + 20, ${py(marker)}, 6, 0)`);
+          order.push('Highlight');
+        }
       }
       order.push(name);
       // On a poster the product (and its shadow) stand in front of a title behind it.
@@ -440,6 +458,30 @@ Gimp.Selection.none(_img)`);
     const y = Math.min(H - 44 - h, at.y1);
     code.push(`_image('Logo', ${py(logo.asset.path)}, ${x}, ${y}, ${w}, ${h}, 0)`);
     order.push('Logo');
+  }
+
+  // The logo never sits on the text: below the text, else at the top, else at the foot.
+  if (logo) {
+    const texts = [...blocks.map((b) => NAME[b.role]), 'Button', 'Highlight'];
+    code.push(`_lg = _get('Logo')
+def _hits():
+    _x, _y = _lg.get_offsets()[-2:]
+    for _n in ${py(texts)}:
+        _o = _get(_n)
+        if not _o:
+            continue
+        _a, _b = _o.get_offsets()[-2:]
+        if _x < _a + _o.get_width() + 12 and _a < _x + _lg.get_width() + 12 and _y < _b + _o.get_height() + 12 and _b < _y + _lg.get_height() + 12:
+            return True
+    return False
+if _lg and _hits():
+    _lx = _lg.get_offsets()[-2]
+    for _ly in [_prev + 32, 56, ${H} - 48 - _lg.get_height()]:
+        if _ly < 40 or _ly + _lg.get_height() > ${H} - 40:
+            continue
+        _lg.set_offsets(int(_lx), int(_ly))
+        if not _hits():
+            break`);
   }
 
   // Bottom to top: the photo, its shade, the title, the subject in front of it, the rest.

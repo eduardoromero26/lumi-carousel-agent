@@ -95,6 +95,8 @@ export type SlidePlan = {
   fresh?: boolean;
   role: string;
   photo: string | null;
+  // What the critic said about the last attempt of an HTML slide, for the next one.
+  critique?: string;
   headline: string;
   body: string;
   visual: string;

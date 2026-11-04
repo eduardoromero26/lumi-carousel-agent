@@ -54,6 +54,10 @@ export type DesignSystem = {
   // The owner's reference plan (layout.ts), with the serif and sans it needs by weight.
   layout?: RefLayout;
   layoutFonts?: { serif: Record<number, string>; sans: Record<number, string> };
+  // The reference the slides imitate in HTML (html_slide.ts): its file.
+  htmlRef?: string;
+  // The master slide's HTML: the other slides keep its system (fonts, colors, objects).
+  htmlMaster?: string;
   // The reference's ground in bands (a light field over a deep one), in the brand's colors.
   zones?: { y1: number; y2: number; color: string }[];
 };

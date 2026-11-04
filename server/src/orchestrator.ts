@@ -494,6 +494,8 @@ async function buildAndReview(
   for (let round = 0; round <= maxRounds; round++) {
     try {
       if (issues.length || requests.length) {
+        // An HTML slide is redrawn with what the critic (or the owner) said.
+        slide.critique = [...issues, ...owner, ...requests.map((r) => `${r.action}${r.why ? ` (${r.why})` : ''}`)].join('; ').slice(0, 900) || undefined;
         const fix = await chooseFix(run, plan, slide, built, issues, requests, snapshot || undefined, from, owner);
         slide.tweaks = fix.tweaks;
         if (fix.photo) slide.photo = fix.photo;

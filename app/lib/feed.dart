@@ -3,6 +3,7 @@ import 'dart:ui_web' as ui_web;
 import 'package:web/web.dart' as web;
 
 import 'api.dart';
+import 'i18n.dart';
 import 'main.dart' show showBig, showImages;
 import 'room.dart' show openEditView;
 
@@ -69,7 +70,7 @@ class _FeedPageState extends State<FeedPage> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(children: [
             Text(
-              list == null ? 'Feed' : '${list.length} carousels${reels.isEmpty ? '' : ' · ${reels.length} reels'}',
+              list == null ? 'Feed' : '{n} carousels'.trf({'n': list.length}) + (reels.isEmpty ? '' : ' · ${'{n} reels'.trf({'n': reels.length})}'),
               style: const TextStyle(fontWeight: FontWeight.w600, color: _muted),
             ),
             const Spacer(),
@@ -77,7 +78,7 @@ class _FeedPageState extends State<FeedPage> {
               showSelectedIcon: false,
               // The server sends no reels while they are off.
               segments: [
-                const ButtonSegment(value: _View.grid, icon: Icon(Icons.grid_on, size: 18), label: Text('Grid', softWrap: false)),
+                ButtonSegment(value: _View.grid, icon: const Icon(Icons.grid_on, size: 18), label: Text('Grid'.tr, softWrap: false)),
                 if (reels.isNotEmpty)
                   const ButtonSegment(value: _View.reels, icon: Icon(Icons.movie_outlined, size: 18), label: Text('Reels', softWrap: false)),
               ],
@@ -94,7 +95,7 @@ class _FeedPageState extends State<FeedPage> {
               : list == null
                   ? const Center(child: CircularProgressIndicator())
                   : list.isEmpty
-                      ? const Center(child: Text('No carousels yet: make one in Create.'))
+                      ? Center(child: Text('No carousels yet: make one in Create.'.tr))
                       : switch (shown) {
                           _View.feed => ListView.separated(
                               padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
@@ -138,7 +139,7 @@ class _PostCardState extends State<PostCard> {
       await Api.referenceFromRun(widget.post['id'] as String);
       if (!mounted) return;
       setState(() => styled = true);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Added to the style gallery in Create.')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Added to the style gallery in Create.'.tr)));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
     }
@@ -227,7 +228,7 @@ class _PostCardState extends State<PostCard> {
             TextButton.icon(
               onPressed: () => openEditView('${p['id']}'),
               icon: const Icon(Icons.layers_outlined, size: 18),
-              label: const Text('Agent Studio'),
+              label: Text('Agent Studio'.tr),
             ),
           ]),
         ),
@@ -294,7 +295,7 @@ class _PostCardState extends State<PostCard> {
                 ),
               ),
             IconButton(
-              tooltip: stars == 5 ? 'Add to the style gallery' : 'Rate it 5 ★ to add it to the style gallery',
+              tooltip: stars == 5 ? 'Add to the style gallery'.tr : 'Rate it 5 ★ to add it to the style gallery'.tr,
               onPressed: stars == 5 && !styled ? addToGallery : null,
               icon: Icon(styled ? Icons.bookmark : Icons.bookmark_border),
             ),
@@ -321,9 +322,9 @@ class _PostCardState extends State<PostCard> {
             Expanded(
               child: Text(
                 [
-                  'Made by the agents',
-                  '${research['approved']}/${slides.length} approved',
-                  if (research['setScore'] != null) 'set ${_score(research['setScore'])}/10',
+                  'Made by the agents'.tr,
+                  '{approved}/{total} approved'.trf({'approved': research['approved'], 'total': slides.length}),
+                  if (research['setScore'] != null) 'set {score}/10'.trf({'score': _score(research['setScore'])}),
                   if (p['cost'] is num) 'US\$${(p['cost'] as num).toStringAsFixed(2)}',
                 ].join(' · '),
                 style: const TextStyle(color: _muted, fontSize: 12),
@@ -340,11 +341,16 @@ class _PostCardState extends State<PostCard> {
 // Null when the owner cancels the dislike; an empty note still counts as a dislike.
 Future<String?> _askWhatsWrong(BuildContext context, String target, {int? stars}) {
   final text = TextEditingController();
-  final what = target == 'carousel' ? 'this carousel' : target == 'reel' ? 'this reel' : target.replaceFirst('slide:', 'slide ');
+  final what = target == 'carousel' ? 'this carousel'.tr : target == 'reel' ? 'this reel'.tr : target;
+  final title = stars != null
+      ? '{stars} ★ · What would make it a 5?'.trf({'stars': stars})
+      : target.startsWith('slide:')
+          ? "What's wrong with slide {n}?".trf({'n': target.substring('slide:'.length)})
+          : "What's wrong with {what}?".trf({'what': what});
   return showDialog<String>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: Text(stars == null ? "What's wrong with $what?" : '$stars ★ · What would make it a 5?'),
+      title: Text(title),
       content: SizedBox(
         width: 460,
         child: TextField(
@@ -352,15 +358,15 @@ Future<String?> _askWhatsWrong(BuildContext context, String target, {int? stars}
           autofocus: true,
           minLines: 2,
           maxLines: 5,
-          decoration: const InputDecoration(
-            hintText: 'e.g. the headline is too small to read on a phone; the product is cut',
-            helperText: 'Optional. The critic reads it before approving the next ones.',
+          decoration: InputDecoration(
+            hintText: 'e.g. the headline is too small to read on a phone; the product is cut'.tr,
+            helperText: 'Optional. The critic reads it before approving the next ones.'.tr,
           ),
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(dialogContext, text.text), child: Text(stars == null ? 'Dislike' : 'Rate')),
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel'.tr)),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, text.text), child: Text(stars == null ? 'Dislike'.tr : 'Rate'.tr)),
       ],
     ),
   ).whenComplete(text.dispose);
@@ -386,11 +392,11 @@ Future<void> showTaste(BuildContext context) async {
   await showDialog<void>(
     context: context,
     builder: (_) => AlertDialog(
-      title: const Text('Your taste'),
+      title: Text('Your taste'.tr),
       content: SizedBox(
         width: 520,
         child: stats.isEmpty
-            ? const Text('Vote on carousels, slides and reels in the feed: the agents learn what you like from your votes.')
+            ? Text('Vote on carousels, slides and reels in the feed: the agents learn what you like from your votes.'.tr)
             : ListView(shrinkWrap: true, children: [
                 _Calibration(report: calibration),
                 for (final entry in byKey.entries) ...[
@@ -402,7 +408,7 @@ Future<void> showTaste(BuildContext context) async {
                 ],
               ]),
       ),
-      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('Close'.tr))],
     ),
   );
 }
@@ -421,23 +427,25 @@ class _Calibration extends StatelessWidget {
     final batches = (report['batches'] as List).cast<Map<String, dynamic>>();
     const label = TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _muted, letterSpacing: 0.6);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('CRITIC VS YOU', style: label),
+      Text('CRITIC VS YOU'.tr, style: label),
       const SizedBox(height: 4),
       Text(
-        rate == null ? 'No votes on finished work yet.' : 'The critic agrees with you on ${(rate * 100).round()} % of ${report['judged']} votes.',
+        rate == null
+            ? 'No votes on finished work yet.'.tr
+            : 'The critic agrees with you on {pct} % of {n} votes.'.trf({'pct': (rate * 100).round(), 'n': report['judged']}),
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
       ),
       if (rate != null)
-        Text('Approved by the critic, disliked by you: ${tooEasy.length} · rejected by the critic, liked by you: $tooHard',
+        Text('Approved by the critic, disliked by you: {easy} · rejected by the critic, liked by you: {hard}'.trf({'easy': tooEasy.length, 'hard': tooHard}),
             style: const TextStyle(fontSize: 12, color: _muted)),
       for (final v in tooEasy.where((v) => (v['note'] as String?)?.isNotEmpty ?? false).take(5))
         Padding(
           padding: const EdgeInsets.only(top: 4),
-          child: Text('${v['business'] ?? '?'} · ${(v['target'] as String).replaceFirst('slide:', 'slide ')}: “${v['note']}”',
+          child: Text('${v['business'] ?? '?'} · ${_targetName(v['target'] as String)}: “${v['note']}”',
               style: const TextStyle(fontSize: 12)),
         ),
       if (batches.isNotEmpty) ...[
-        const Padding(padding: EdgeInsets.only(top: 14, bottom: 4), child: Text('CAROUSELS YOU LIKED, PER BATCH', style: label)),
+        Padding(padding: const EdgeInsets.only(top: 14, bottom: 4), child: Text('CAROUSELS YOU LIKED, PER BATCH'.tr, style: label)),
         for (final b in batches)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 2),
@@ -539,12 +547,12 @@ void showResearch(BuildContext context, Map<String, dynamic> post) {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(post['business'] as String, style: text.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                Text('How the agents researched it', style: text.bodyMedium?.copyWith(color: _muted)),
+                Text('How the agents researched it'.tr, style: text.bodyMedium?.copyWith(color: _muted)),
               ]),
             ),
             IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close)),
           ]),
-          section('The website', [
+          section('The website'.tr, [
             if (post['url'] != null)
               InkWell(
                 onTap: () => web.window.open(post['url'] as String, '_blank'),
@@ -560,7 +568,7 @@ void showResearch(BuildContext context, Map<String, dynamic> post) {
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: InkWell(
-                        onTap: () => showBig(context, NetworkImage(Api.fileUrl(s)), caption: 'What the analyst saw'),
+                        onTap: () => showBig(context, NetworkImage(Api.fileUrl(s)), caption: 'What the analyst saw'.tr),
                         child: Container(
                           decoration: BoxDecoration(border: Border.all(color: const Color(0xFFDBDBDB)), borderRadius: BorderRadius.circular(6)),
                           clipBehavior: Clip.antiAlias,
@@ -572,17 +580,17 @@ void showResearch(BuildContext context, Map<String, dynamic> post) {
               ),
             ],
           ]),
-          section('What the analyst found', [
+          section('What the analyst found'.tr, [
             Wrap(spacing: 6, runSpacing: 6, children: [
               for (final MapEntry(:key, :value) in assets.entries) Chip(visualDensity: VisualDensity.compact, label: Text('$value $key')),
-              Chip(visualDensity: VisualDensity.compact, label: Text('${r['photos']} photos usable')),
-              if ((r['ownerPhotos'] as num? ?? 0) > 0) Chip(visualDensity: VisualDensity.compact, label: Text("${r['ownerPhotos']} from the owner")),
+              Chip(visualDensity: VisualDensity.compact, label: Text('{n} photos usable'.trf({'n': r['photos']}))),
+              if ((r['ownerPhotos'] as num? ?? 0) > 0) Chip(visualDensity: VisualDensity.compact, label: Text('{n} from the owner'.trf({'n': r['ownerPhotos']}))),
             ]),
           ]),
           if (r['concept'] != null)
-            section('Strategy', [
+            section('Strategy'.tr, [
               Text(
-                [r['businessType'], if (r['format'] != null) '${r['format']} carousel'].whereType<String>().join(' · '),
+                [r['businessType'], if (r['format'] != null) '{format} carousel'.trf({'format': r['format']})].whereType<String>().join(' · '),
                 style: const TextStyle(color: _muted),
               ),
               const SizedBox(height: 4),
@@ -590,7 +598,7 @@ void showResearch(BuildContext context, Map<String, dynamic> post) {
               if (r['why'] != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(r['why'] as String)),
             ]),
           if (colors.isNotEmpty || fonts.isNotEmpty || r['design'] != null)
-            section('The brand, read from the site', [
+            section('The brand, read from the site'.tr, [
               Row(children: [
                 for (final c in colors)
                   Tooltip(
@@ -603,21 +611,21 @@ void showResearch(BuildContext context, Map<String, dynamic> post) {
                     ),
                   ),
                 const SizedBox(width: 8),
-                if (fonts.isNotEmpty) Expanded(child: Text('Type: ${fonts.toSet().join(' + ')}')),
+                if (fonts.isNotEmpty) Expanded(child: Text('Type: {fonts}'.trf({'fonts': fonts.toSet().join(' + ')}))),
               ]),
               if (siteFonts.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: Text('Fonts on the site: ${siteFonts.take(4).join(', ')}', style: const TextStyle(color: _muted, fontSize: 12)),
+                  child: Text('Fonts on the site: {fonts}'.trf({'fonts': siteFonts.take(4).join(', ')}), style: const TextStyle(color: _muted, fontSize: 12)),
                 ),
               if (r['design'] != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(r['design'] as String)),
             ]),
-          section('Quality', [
+          section('Quality'.tr, [
             Text(
               [
-                '${r['approved']}/${(post['slides'] as List).length} slides approved by the critic',
-                if (r['setScore'] != null) 'the whole set ${_score(r['setScore'])}/10',
-                if (post['cost'] is num) 'US\$${(post['cost'] as num).toStringAsFixed(2)} in models',
+                '{approved}/{total} slides approved by the critic'.trf({'approved': r['approved'], 'total': (post['slides'] as List).length}),
+                if (r['setScore'] != null) 'the whole set {score}/10'.trf({'score': _score(r['setScore'])}),
+                if (post['cost'] is num) '{cost} in models'.trf({'cost': 'US\$${(post['cost'] as num).toStringAsFixed(2)}'}),
               ].join(' · '),
             ),
           ]),
@@ -689,7 +697,7 @@ class _Reels extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (posts.isEmpty) return const Center(child: Text('No reels yet: make one from a finished carousel.'));
+    if (posts.isEmpty) return Center(child: Text('No reels yet: make one from a finished carousel.'.tr));
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Center(
@@ -831,7 +839,14 @@ Color? _hex(String? hex) {
   return value == null ? null : Color(0xFF000000 | value);
 }
 
-String _host(String? url) => url == null ? 'Sponsored' : (Uri.tryParse(url)?.host ?? url).replaceFirst('www.', '');
+String _host(String? url) => url == null ? 'Sponsored'.tr : (Uri.tryParse(url)?.host ?? url).replaceFirst('www.', '');
+
+// How a vote target reads in the calibration notes.
+String _targetName(String target) => target == 'carousel'
+    ? 'carousel'.tr
+    : target.startsWith('slide:')
+        ? 'slide {n}'.trf({'n': target.substring('slide:'.length)})
+        : target;
 
 String _score(Object? n) => n is num && n == n.roundToDouble() ? n.toInt().toString() : '$n';
 
@@ -839,7 +854,7 @@ String _ago(String iso) {
   final at = DateTime.tryParse(iso);
   if (at == null) return '';
   final d = DateTime.now().difference(at);
-  if (d.inMinutes < 1) return 'now';
+  if (d.inMinutes < 1) return 'now'.tr;
   if (d.inMinutes < 60) return '${d.inMinutes} min';
   if (d.inHours < 24) return '${d.inHours} h';
   if (d.inDays < 7) return '${d.inDays} d';

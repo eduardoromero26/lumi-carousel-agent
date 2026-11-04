@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:web/web.dart' as web;
 
 import 'api.dart';
+import 'i18n.dart';
 import 'main.dart' show Palette, languages;
 
 // Many websites, one carousel after another, grouped in batches. A batch's numbers
@@ -92,7 +93,7 @@ class _QueuePageState extends State<QueuePage> {
   Future<void> copyReport(String name) async {
     try {
       await Clipboard.setData(ClipboardData(text: await Api.batchReport(name)));
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Report of "$name" copied')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Report of "{name}" copied'.trf({'name': name}))));
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     }
@@ -101,7 +102,7 @@ class _QueuePageState extends State<QueuePage> {
   Future<void> copyFailures() async {
     try {
       await Clipboard.setData(ClipboardData(text: await Api.failures()));
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failure history copied')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failure history copied'.tr)));
     } catch (e) {
       if (mounted) setState(() => error = '$e');
     }
@@ -127,16 +128,16 @@ class _QueuePageState extends State<QueuePage> {
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    Text('Add websites', style: Theme.of(context).textTheme.titleMedium),
+                    Text('Add websites'.tr, style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 4),
-                    const Text('One per line. Each one becomes a carousel, one after another.', style: TextStyle(color: Palette.muted)),
+                    Text('One per line. Each one becomes a carousel, one after another.'.tr, style: const TextStyle(color: Palette.muted)),
                     const SizedBox(height: 12),
                     TextField(controller: urls, minLines: 3, maxLines: 8, decoration: const InputDecoration(hintText: 'tienda.mx\nclinica.com.mx')),
                     const SizedBox(height: 12),
                     Wrap(spacing: 12, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.center, children: [
                       SizedBox(
                         width: 280,
-                        child: TextField(controller: batch, decoration: const InputDecoration(hintText: 'Batch name (what changed)')),
+                        child: TextField(controller: batch, decoration: InputDecoration(hintText: 'Batch name (what changed)'.tr)),
                       ),
                       SizedBox(
                         width: 180,
@@ -146,7 +147,7 @@ class _QueuePageState extends State<QueuePage> {
                           onChanged: (v) => setState(() => language = v ?? language),
                         ),
                       ),
-                      FilledButton.icon(onPressed: add, icon: const Icon(Icons.playlist_add, size: 18), label: const Text('Add to queue')),
+                      FilledButton.icon(onPressed: add, icon: const Icon(Icons.playlist_add, size: 18), label: Text('Add to queue'.tr)),
                     ]),
                   ]),
                 ),
@@ -162,7 +163,9 @@ class _QueuePageState extends State<QueuePage> {
               const SizedBox(height: 16),
               Row(children: [
                 Text(
-                  s == null ? 'Queue' : '$waiting waiting${s['running'] != null ? ' · 1 running' : ''}${paused ? ' · paused' : ''}',
+                  s == null
+                      ? 'Queue'.tr
+                      : '{n} waiting'.trf({'n': waiting}) + (s['running'] != null ? ' · ${'1 running'.tr}' : '') + (paused ? ' · ${'paused'.tr}' : ''),
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const Spacer(),
@@ -170,23 +173,23 @@ class _QueuePageState extends State<QueuePage> {
                   TextButton.icon(
                     onPressed: () => web.window.open('/?run=${s!['running']}', '_blank'),
                     icon: const Icon(Icons.live_tv, size: 18),
-                    label: const Text('Watch live'),
+                    label: Text('Watch live'.tr),
                   ),
                 const SizedBox(width: 8),
-                TextButton.icon(onPressed: copyFailures, icon: const Icon(Icons.history, size: 18), label: const Text('Failure history')),
+                TextButton.icon(onPressed: copyFailures, icon: const Icon(Icons.history, size: 18), label: Text('Failure history'.tr)),
                 const SizedBox(width: 8),
                 if (s != null)
                   OutlinedButton.icon(
                     onPressed: () => _call(() => Api.pauseQueue(!paused)),
                     icon: Icon(paused ? Icons.play_arrow : Icons.pause, size: 18),
-                    label: Text(paused ? 'Resume' : 'Pause after this one'),
+                    label: Text(paused ? 'Resume'.tr : 'Pause after this one'.tr),
                   ),
                 const SizedBox(width: 8),
-                IconButton(tooltip: 'Refresh', onPressed: load, icon: const Icon(Icons.refresh)),
+                IconButton(tooltip: 'Refresh'.tr, onPressed: load, icon: const Icon(Icons.refresh)),
               ]),
               if (error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(error!, style: const TextStyle(color: Palette.danger))),
               const SizedBox(height: 8),
-              if (s != null && batches.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('Nothing in the queue yet.'))),
+              if (s != null && batches.isEmpty) Padding(padding: const EdgeInsets.all(24), child: Center(child: Text('Nothing in the queue yet.'.tr))),
               for (final b in batches) ...[
                 _BatchCard(
                   summary: b,
@@ -232,9 +235,9 @@ class _ListCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Text('$name · ${urls.length} websites', style: Theme.of(context).textTheme.titleMedium),
+          Text('{name} · {n} websites'.trf({'name': name, 'n': urls.length}), style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 4),
-          const Text('Ten at a time, in the language above. Each block is its own batch.', style: TextStyle(color: Palette.muted)),
+          Text('Ten at a time, in the language above. Each block is its own batch.'.tr, style: const TextStyle(color: Palette.muted)),
           const SizedBox(height: 12),
           Wrap(spacing: 8, runSpacing: 8, children: [
             for (var from = 0; from < urls.length; from += block)
@@ -245,7 +248,7 @@ class _ListCard extends StatelessWidget {
                 return OutlinedButton.icon(
                   onPressed: done ? null : () => onStart(urls.sublist(from, to), batch),
                   icon: Icon(done ? Icons.check : Icons.play_arrow, size: 18),
-                  label: Text(done ? '${from + 1}–$to' : 'Start ${from + 1}–$to'),
+                  label: Text(done ? '${from + 1}–$to' : 'Start {from}–{to}'.trf({'from': from + 1, 'to': to})),
                 );
               }),
           ]),
@@ -301,21 +304,21 @@ class _BatchCard extends StatelessWidget {
                 Icon(open ? Icons.expand_less : Icons.expand_more, color: Palette.muted),
                 const SizedBox(width: 8),
                 Expanded(child: Text(b['batch'] as String, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15))),
-                Text('${b['done']}/${b['total']} done${(b['failed'] as int) > 0 ? ' · ${b['failed']} failed' : ''}', style: const TextStyle(color: Palette.muted)),
+                Text('{done}/{total} done'.trf({'done': b['done'], 'total': b['total']}) + ((b['failed'] as int) > 0 ? ' · ${'{n} failed'.trf({'n': b['failed']})}' : ''), style: const TextStyle(color: Palette.muted)),
               ]),
               const SizedBox(height: 10),
               Wrap(spacing: 8, runSpacing: 8, children: [
-                _Stat('Set score', n(b['setScore'], '/10')),
-                _Stat('Slides approved', n(b['approvedPct'], ' %')),
-                _Stat('First pass', n(b['firstPassPct'], ' %')),
-                _Stat('Rounds per slide', n(b['roundsPerSlide'])),
-                _Stat('Per carousel', b['avgCost'] == null ? '–' : 'US\$${b['avgCost']}'),
-                _Stat('Minutes', n(b['avgMinutes'])),
-                _Stat('Spent', 'US\$${b['totalCost']}'),
+                _Stat('Set score'.tr, n(b['setScore'], '/10')),
+                _Stat('Slides approved'.tr, n(b['approvedPct'], ' %')),
+                _Stat('First pass'.tr, n(b['firstPassPct'], ' %')),
+                _Stat('Rounds per slide'.tr, n(b['roundsPerSlide'])),
+                _Stat('Per carousel'.tr, b['avgCost'] == null ? '–' : 'US\$${b['avgCost']}'),
+                _Stat('Minutes'.tr, n(b['avgMinutes'])),
+                _Stat('Spent'.tr, 'US\$${b['totalCost']}'),
               ]),
               if (pairs.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                Text('Fails most: ${pairs.take(6).join(' · ')}', style: const TextStyle(color: Palette.muted, fontSize: 13)),
+                Text('Fails most: {list}'.trf({'list': pairs.take(6).join(' · ')}), style: const TextStyle(color: Palette.muted, fontSize: 13)),
               ],
               if (verdict != null) ...[
                 const SizedBox(height: 10),
@@ -323,22 +326,22 @@ class _BatchCard extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(color: Palette.border.withValues(alpha: 0.3), borderRadius: BorderRadius.circular(8)),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    if (verdict['stars'] != null) Text('Your verdict: ${'★' * (verdict['stars'] as int)}${'☆' * (5 - (verdict['stars'] as int))}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                    if (verdict['stars'] != null) Text('Your verdict: {stars}'.trf({'stars': '${'★' * (verdict['stars'] as int)}${'☆' * (5 - (verdict['stars'] as int))}'}), style: const TextStyle(fontWeight: FontWeight.w600)),
                     if (verdict['note'] != null) ...[
                       const SizedBox(height: 4),
                       Text('“${verdict['note']}”', style: const TextStyle(fontSize: 13)),
                       const SizedBox(height: 2),
-                      const Text('Every agent reads it from the next carousel on.', style: TextStyle(fontSize: 12, color: Palette.muted)),
+                      Text('Every agent reads it from the next carousel on.'.tr, style: const TextStyle(fontSize: 12, color: Palette.muted)),
                     ],
                   ]),
                 ),
               ],
               const SizedBox(height: 10),
               Wrap(spacing: 8, children: [
-                TextButton.icon(onPressed: onVerdict, icon: const Icon(Icons.star_outline_rounded, size: 16), label: Text(verdict == null ? 'Rate the batch' : 'Edit verdict')),
-                TextButton.icon(onPressed: onReport, icon: const Icon(Icons.copy, size: 16), label: const Text('Copy report')),
-                TextButton.icon(onPressed: onAgain, icon: const Icon(Icons.replay, size: 16), label: const Text('Run again')),
-                if ((b['waiting'] as int) > 0) TextButton.icon(onPressed: onClear, icon: const Icon(Icons.clear_all, size: 16), label: const Text('Remove waiting')),
+                TextButton.icon(onPressed: onVerdict, icon: const Icon(Icons.star_outline_rounded, size: 16), label: Text(verdict == null ? 'Rate the batch'.tr : 'Edit verdict'.tr)),
+                TextButton.icon(onPressed: onReport, icon: const Icon(Icons.copy, size: 16), label: Text('Copy report'.tr)),
+                TextButton.icon(onPressed: onAgain, icon: const Icon(Icons.replay, size: 16), label: Text('Run again'.tr)),
+                if ((b['waiting'] as int) > 0) TextButton.icon(onPressed: onClear, icon: const Icon(Icons.clear_all, size: 16), label: Text('Remove waiting'.tr)),
               ]),
             ]),
           ),
@@ -391,9 +394,9 @@ class _ItemRow extends StatelessWidget {
         ? (item['note'] as String? ?? '')
         : m['error'] as String? ??
             [
-              if (m['setScore'] != null) 'set ${m['setScore']}/10',
-              '${m['approved']}/${m['slides']} approved',
-              '${m['firstPass']} first pass',
+              if (m['setScore'] != null) 'set {n}/10'.trf({'n': m['setScore']}),
+              '{a}/{b} approved'.trf({'a': m['approved'], 'b': m['slides']}),
+              '{n} first pass'.trf({'n': m['firstPass']}),
               'US\$${m['cost']}',
               '${m['minutes']} min',
             ].join(' · ');
@@ -402,15 +405,15 @@ class _ItemRow extends StatelessWidget {
       leading: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(color: _statusColors[status]!.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(6)),
-        child: Text(status, style: TextStyle(color: _statusColors[status], fontWeight: FontWeight.w700, fontSize: 12)),
+        child: Text(status.tr, style: TextStyle(color: _statusColors[status], fontWeight: FontWeight.w700, fontSize: 12)),
       ),
       title: Text(Uri.tryParse(item['url'] as String)?.host.replaceFirst('www.', '') ?? item['url'] as String),
       subtitle: detail.isEmpty ? null : Text(detail, maxLines: 2, overflow: TextOverflow.ellipsis),
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
         if (runId != null)
-          IconButton(tooltip: 'Open the run', icon: const Icon(Icons.open_in_new, size: 18), onPressed: () => web.window.open('/?run=$runId', '_blank')),
-        if (status == 'running' && runId != null) IconButton(tooltip: 'Stop this run', icon: const Icon(Icons.stop_circle_outlined, size: 18), onPressed: () => onStop(runId)),
-        if (status == 'waiting') IconButton(tooltip: 'Remove', icon: const Icon(Icons.close, size: 18), onPressed: () => onRemove(item['id'] as int)),
+          IconButton(tooltip: 'Open the run'.tr, icon: const Icon(Icons.open_in_new, size: 18), onPressed: () => web.window.open('/?run=$runId', '_blank')),
+        if (status == 'running' && runId != null) IconButton(tooltip: 'Stop this run'.tr, icon: const Icon(Icons.stop_circle_outlined, size: 18), onPressed: () => onStop(runId)),
+        if (status == 'waiting') IconButton(tooltip: 'Remove'.tr, icon: const Icon(Icons.close, size: 18), onPressed: () => onRemove(item['id'] as int)),
       ]),
     );
   }
@@ -425,38 +428,38 @@ Future<({int? stars, String note})?> _askVerdict(BuildContext context, String ba
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) => AlertDialog(
-        title: Text('Batch “$batch”'),
+        title: Text('Batch “{batch}”'.trf({'batch': batch})),
         content: SizedBox(
           width: 520,
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('How good is the batch as a whole?', style: TextStyle(fontWeight: FontWeight.w600)),
+            Text('How good is the batch as a whole?'.tr, style: const TextStyle(fontWeight: FontWeight.w600)),
             Row(children: [
               for (var i = 1; i <= 5; i++)
                 IconButton(
-                  tooltip: '$i of 5',
+                  tooltip: '{i} of 5'.trf({'i': i}),
                   onPressed: () => setState(() => stars = stars == i ? null : i),
                   icon: Icon((stars ?? 0) >= i ? Icons.star_rounded : Icons.star_outline_rounded,
                       color: (stars ?? 0) >= i ? const Color(0xFFF5A524) : const Color(0xFFC7C7C7)),
                 ),
             ]),
             const SizedBox(height: 12),
-            const Text('What should change in every carousel from now on?', style: TextStyle(fontWeight: FontWeight.w600)),
+            Text('What should change in every carousel from now on?'.tr, style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            const Text('The director, the art director and the critic read it on every next carousel. Turn it off in Learned › Direction.',
-                style: TextStyle(fontSize: 12, color: Palette.muted)),
+            Text('The director, the art director and the critic read it on every next carousel. Turn it off in Learned › Direction.'.tr,
+                style: const TextStyle(fontSize: 12, color: Palette.muted)),
             const SizedBox(height: 8),
             TextField(
               controller: text,
               autofocus: true,
               minLines: 4,
               maxLines: 10,
-              decoration: const InputDecoration(hintText: 'e.g. Shorter headlines, more of the brand color, never beige, products cut out instead of in boxes…'),
+              decoration: InputDecoration(hintText: 'e.g. Shorter headlines, more of the brand color, never beige, products cut out instead of in boxes…'.tr),
             ),
           ]),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(context, (stars: stars, note: text.text.trim())), child: const Text('Save')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel'.tr)),
+          FilledButton(onPressed: () => Navigator.pop(context, (stars: stars, note: text.text.trim())), child: Text('Save'.tr)),
         ],
       ),
     ),

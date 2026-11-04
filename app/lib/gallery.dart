@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 
 import 'api.dart';
+import 'i18n.dart';
 import 'main.dart' show Palette;
 
 // Images the owner picks from their computer, as (file name, base64). Never completes
@@ -50,12 +51,12 @@ class StyleGallery extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      const Text('Pick a style', textAlign: TextAlign.center, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
+      Text('Pick a style'.tr, textAlign: TextAlign.center, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
       const SizedBox(height: 8),
-      const Text(
-        "Designs you like and your 5 ★ carousels. The agents follow its layout, type and color approach with your brand's own colors and photos, never its image.",
+      Text(
+        "Designs you like and your 5 ★ carousels. The agents follow its layout, type and color approach with your brand's own colors and photos, never its image.".tr,
         textAlign: TextAlign.center,
-        style: TextStyle(color: Palette.muted, fontSize: 14, height: 1.5),
+        style: const TextStyle(color: Palette.muted, fontSize: 14, height: 1.5),
       ),
       const SizedBox(height: 22),
       Wrap(
@@ -66,13 +67,13 @@ class StyleGallery extends StatelessWidget {
           _Tile(
             selected: selected == null,
             onTap: () => onSelect(null),
-            title: 'The agents decide',
+            title: 'The agents decide'.tr,
             child: const Center(child: Icon(Icons.auto_awesome, color: Palette.primary, size: 34)),
           ),
           _Tile(
             selected: false,
             onTap: uploading ? null : onUpload,
-            title: uploading ? 'Reading the style…' : 'Upload designs',
+            title: uploading ? 'Reading the style…'.tr : 'Upload designs'.tr,
             child: Center(
               child: uploading
                   ? const SizedBox(width: 28, height: 28, child: CircularProgressIndicator(strokeWidth: 2.5))
@@ -84,7 +85,7 @@ class StyleGallery extends StatelessWidget {
               selected: selected == s['id'],
               onTap: () => onSelect(s['id'] as String),
               title: s['title'] as String,
-              badge: s['source'] == 'carousel' ? 'Ours' : null,
+              badge: s['source'] == 'carousel' ? 'Ours'.tr : null,
               tooltip: (s['style'] as Map?)?['notes'] as String?,
               onDelete: () => onDelete(s['id'] as String),
               child: _Thumb(url: Api.fileUrl(s['url'] as String)),
@@ -139,7 +140,7 @@ class _Tile extends StatelessWidget {
                     right: 4,
                     top: 4,
                     child: IconButton.filledTonal(
-                      tooltip: 'Remove from the gallery',
+                      tooltip: 'Remove from the gallery'.tr,
                       visualDensity: VisualDensity.compact,
                       iconSize: 16,
                       onPressed: onDelete,
@@ -206,7 +207,7 @@ class _ThumbState extends State<_Thumb> {
         child: TextButton.icon(
           onPressed: () => setState(() => attempt++),
           icon: const Icon(Icons.refresh_rounded, size: 18),
-          label: const Text('Retry'),
+          label: Text('Retry'.tr),
         ),
       ),
     );

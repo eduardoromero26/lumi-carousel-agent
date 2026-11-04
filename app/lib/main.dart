@@ -261,7 +261,7 @@ class _PoweredBy extends StatelessWidget {
           onTap: () => web.window.open(kodemexUrl, '_blank'),
           child: Text.rich(
             TextSpan(style: const TextStyle(fontSize: 12.5, color: Palette.faint), children: [
-              const TextSpan(text: 'Open source · Powered by '),
+              TextSpan(text: 'Open source · Powered by '.tr),
               TextSpan(text: 'Kodemex', style: const TextStyle(fontWeight: FontWeight.w700, color: Palette.primary)),
             ]),
           ),
@@ -509,7 +509,7 @@ class _StudioPageState extends State<StudioPage> {
             Positioned(
               right: 8,
               top: 8,
-              child: IconButton(tooltip: 'Close', onPressed: () => scaffold.currentState?.closeDrawer(), icon: const Icon(Icons.close_rounded)),
+              child: IconButton(tooltip: 'Close'.tr, onPressed: () => scaffold.currentState?.closeDrawer(), icon: const Icon(Icons.close_rounded)),
             ),
           ]),
         ),
@@ -585,13 +585,13 @@ class _BriefForm extends StatelessWidget {
         const SizedBox(height: 22),
       ],
       Text(
-        "Let's start with your business",
+        "Let's start with your business".tr,
         textAlign: hero ? TextAlign.center : TextAlign.start,
         style: TextStyle(fontSize: hero ? 32 : 22, fontWeight: FontWeight.w800, height: 1.12, letterSpacing: hero ? -0.64 : -0.3),
       ),
       SizedBox(height: hero ? 16 : 8),
       Text(
-        'A director, a designer working in GIMP and a critic read your website and make your carousel. You just review.',
+        'A director, a designer working in GIMP and a critic read your website and make your carousel. You just review.'.tr,
         textAlign: hero ? TextAlign.center : TextAlign.start,
         style: const TextStyle(color: Palette.muted, fontSize: 15, height: 1.5),
       ),
@@ -599,20 +599,20 @@ class _BriefForm extends StatelessWidget {
       _Panel(
         hero: hero,
         children: [
-          const _FieldLabel('Your website'),
+          _FieldLabel('Your website'.tr),
           TextField(
             controller: s.website,
             keyboardType: TextInputType.url,
             onSubmitted: (_) => s.running ? null : s.start(),
-            decoration: const InputDecoration(
-              hintText: 'mytaqueria.com',
-              prefixIcon: Icon(Icons.language_rounded, color: Palette.faint, size: 20),
+            decoration: InputDecoration(
+              hintText: 'mytaqueria.com'.tr,
+              prefixIcon: const Icon(Icons.language_rounded, color: Palette.faint, size: 20),
             ),
           ),
           const SizedBox(height: 6),
-          const Text('We read your texts, logo, colors and photos from it.', style: TextStyle(color: Palette.faint, fontSize: 13)),
+          Text('We read your texts, logo, colors and photos from it.'.tr, style: const TextStyle(color: Palette.faint, fontSize: 13)),
           const SizedBox(height: 18),
-          const _FieldLabel('Language of the slides'),
+          _FieldLabel('Language of the slides'.tr),
           DropdownButtonFormField<String>(
             initialValue: s.language,
             borderRadius: BorderRadius.circular(10),
@@ -620,7 +620,7 @@ class _BriefForm extends StatelessWidget {
             onChanged: (v) => s.setLanguage(v!),
           ),
           const SizedBox(height: 18),
-          const _FieldLabel('Style'),
+          _FieldLabel('Style'.tr),
           _ChosenStyle(state: s, hero: hero),
         ],
       ),
@@ -640,13 +640,13 @@ class _BriefForm extends StatelessWidget {
         onPressed: s.running ? null : s.start,
         style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Text(s.running ? 'Working…' : 'Make my carousel'),
+          Text(s.running ? 'Working…'.tr : 'Make my carousel'.tr),
           if (!s.running) ...[const SizedBox(width: 8), const Icon(Icons.arrow_forward_rounded, size: 18)],
         ]),
       ),
       if (s.running && !hero) ...[
         const SizedBox(height: 8),
-        const Text('One carousel at a time: stop the current one or wait until it is ready.', style: TextStyle(color: Palette.faint, fontSize: 13)),
+        Text('One carousel at a time: stop the current one or wait until it is ready.'.tr, style: const TextStyle(color: Palette.faint, fontSize: 13)),
       ],
     ]);
   }
@@ -662,7 +662,7 @@ class _ChosenStyle extends StatelessWidget {
   Widget build(BuildContext context) {
     final style = state.chosenStyle;
     if (style == null) {
-      return Text(hero ? 'The agents decide. Pick a style in the gallery below.' : 'The agents decide.', style: const TextStyle(color: Palette.faint, fontSize: 13));
+      return Text(hero ? 'The agents decide. Pick a style in the gallery below.'.tr : 'The agents decide.'.tr, style: const TextStyle(color: Palette.faint, fontSize: 13));
     }
     return Row(children: [
       ClipRRect(
@@ -671,7 +671,7 @@ class _ChosenStyle extends StatelessWidget {
       ),
       const SizedBox(width: 12),
       Expanded(child: Text(style['title'] as String, style: const TextStyle(fontWeight: FontWeight.w600), overflow: TextOverflow.ellipsis)),
-      if (!state.running) IconButton(tooltip: 'Let the agents decide', onPressed: () => state.chooseStyle(null), icon: const Icon(Icons.close, size: 18)),
+      if (!state.running) IconButton(tooltip: 'Let the agents decide'.tr, onPressed: () => state.chooseStyle(null), icon: const Icon(Icons.close, size: 18)),
     ]);
   }
 }
@@ -727,18 +727,18 @@ class _Workspace extends StatelessWidget {
       if (plan == null && s.running) ...[
         const SizedBox(height: 16),
         _Card(
-          title: 'Your carousel',
+          title: 'Your carousel'.tr,
           subtitle: s.siteAssets == null
-              ? 'The analyst is reading your website. Then the director plans the slides.'
-              : 'The director is planning the slides from what the analyst found.',
+              ? 'The analyst is reading your website. Then the director plans the slides.'.tr
+              : 'The director is planning the slides from what the analyst found.'.tr,
           child: const _SlidesLoading(),
         ),
       ],
       if (plan != null) ...[
         const SizedBox(height: 16),
         _Card(
-          title: 'Your carousel',
-          subtitle: s.done != null ? 'Tap a slide to ask the designer for changes.' : 'Each slide shows up as the designer builds it and the critic checks it.',
+          title: 'Your carousel'.tr,
+          subtitle: s.done != null ? 'Tap a slide to ask the designer for changes.'.tr : 'Each slide shows up as the designer builds it and the critic checks it.'.tr,
           child: _SlidesStrip(
             plan: plan,
             events: s.events,
@@ -755,10 +755,10 @@ class _Workspace extends StatelessWidget {
         _SiteAssets(data: s.siteAssets!),
       ] else if (s.running) ...[
         const SizedBox(height: 16),
-        const _Card(
-          title: 'Found on your website',
-          subtitle: 'Your logo, colors and photos show up here.',
-          child: _AssetsLoading(),
+        _Card(
+          title: 'Found on your website'.tr,
+          subtitle: 'Your logo, colors and photos show up here.'.tr,
+          child: const _AssetsLoading(),
         ),
       ],
     ]);
@@ -849,12 +849,12 @@ class _ErrorCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = state;
     final stopped = error.text.startsWith('Stopped by the owner');
-    final title = stopped ? 'You stopped this carousel' : 'The agents could not finish this carousel';
+    final title = stopped ? 'You stopped this carousel'.tr : 'The agents could not finish this carousel'.tr;
     final body = stopped
-        ? 'Nothing else will be made for this run. Start a new one when you are ready.'
+        ? 'Nothing else will be made for this run. Start a new one when you are ready.'.tr
         : planned
-            ? 'The slides made so far are below. Try again, or see in the agents\' log where it stopped.'
-            : 'It stopped before the slides were planned. Check that the website opens, then try again.';
+            ? 'The slides made so far are below. Try again, or see in the agents\' log where it stopped.'.tr
+            : 'It stopped before the slides were planned. Check that the website opens, then try again.'.tr;
     final canRetry = s.website.text.trim().isNotEmpty;
     return Container(
       padding: const EdgeInsets.all(20),
@@ -887,20 +887,20 @@ class _ErrorCard extends StatelessWidget {
                 FilledButton.icon(
                   onPressed: s.start,
                   icon: const Icon(Icons.refresh_rounded, size: 18),
-                  label: const Text('Try again'),
+                  label: Text('Try again'.tr),
                   style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
                 )
               else
                 FilledButton.icon(
                   onPressed: s.openNewCarousel,
                   icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('New carousel'),
+                  label: Text('New carousel'.tr),
                   style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
                 ),
               OutlinedButton.icon(
                 onPressed: s.openAgentWork,
                 icon: const Icon(Icons.terminal_rounded, size: 18),
-                label: const Text('See what happened'),
+                label: Text('See what happened'.tr),
               ),
             ]),
           ]),
@@ -923,18 +923,18 @@ class _RunHeader extends StatelessWidget {
     final error = events.where((e) => e.type == 'error').lastOrNull;
     final now = events.where((e) => const {'status', 'thought', 'review', 'slide', 'assets'}.contains(e.type)).lastOrNull;
     final (label, color) = error != null
-        ? ('STOPPED', Palette.danger)
+        ? ('STOPPED'.tr, Palette.danger)
         : s.done != null
-            ? ('READY', Palette.success)
-            : ('WORKING', Palette.kicker);
-    final title = s.plan?['concept'] as String? ?? (s.done != null || error != null ? 'Your carousel' : 'Reading your website…');
+            ? ('READY'.tr, Palette.success)
+            : ('WORKING'.tr, Palette.kicker);
+    final title = s.plan?['concept'] as String? ?? (s.done != null || error != null ? 'Your carousel'.tr : 'Reading your website…'.tr);
     final narrow = MediaQuery.sizeOf(context).width < 720;
     final actions = Wrap(spacing: 8, runSpacing: 8, children: [
       if (s.running)
         OutlinedButton.icon(
           onPressed: s.stop,
           icon: const Icon(Icons.stop_circle_outlined, size: 18),
-          label: const Text('Stop'),
+          label: Text('Stop'.tr),
           style: OutlinedButton.styleFrom(foregroundColor: Palette.danger),
         ),
       ViewSwitch(edit: false, onChanged: (on) {
@@ -943,12 +943,12 @@ class _RunHeader extends StatelessWidget {
       OutlinedButton.icon(
         onPressed: s.openAgentWork,
         icon: const Icon(Icons.terminal_rounded, size: 18),
-        label: Text('Agent work · ${events.length}'),
+        label: Text('Agent work · {n}'.trf({'n': events.length})),
       ),
       FilledButton.icon(
         onPressed: s.openNewCarousel,
         icon: const Icon(Icons.add_rounded, size: 18),
-        label: const Text('New carousel'),
+        label: Text('New carousel'.tr),
         style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
       ),
     ]);
@@ -989,7 +989,8 @@ class _RunHeader extends StatelessWidget {
   }
 }
 
-String _agentName(String agent) => agent.isEmpty ? '' : '${agent[0].toUpperCase()}${agent.substring(1)}';
+// The agent's id ('analyst') shown as its name, in the UI's language.
+String _agentName(String agent) => agent.isEmpty ? '' : '${agent[0].toUpperCase()}${agent.substring(1)}'.tr;
 
 class _LiveDot extends StatefulWidget {
   const _LiveDot();
@@ -1038,7 +1039,7 @@ List<_Step> _flow(List<RunEvent> ev, Map<String, dynamic>? plan, bool failed) {
   return [
     for (var i = 0; i < labels.length; i++)
       (
-        label: labels[i],
+        label: labels[i].tr,
         state: finished || i < current
             ? _StepState.done
             : i == current
@@ -1060,7 +1061,7 @@ class _Steps extends StatelessWidget {
       if (box.maxWidth < 640) {
         final n = current < 0 ? steps.length : current + 1;
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Step $n of ${steps.length} · ${steps[n - 1].label}', style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
+          Text('Step {n} of {total} · {step}'.trf({'n': n, 'total': steps.length, 'step': steps[n - 1].label}), style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
           ClipRRect(
             borderRadius: BorderRadius.circular(99),
@@ -1169,21 +1170,21 @@ class _AgentWorkState extends State<_AgentWork> {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(children: [
                     if (widget.running) ...[const _LiveDot(), const SizedBox(width: 8)],
-                    Text('DEBUG', style: mono(color: Palette.kicker, spacing: 1.6)),
+                    Text('DEBUG'.tr, style: mono(color: Palette.kicker, spacing: 1.6)),
                   ]),
                   const SizedBox(height: 4),
-                  const Text('Agent work', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, height: 1.2)),
+                  Text('Agent work'.tr, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, height: 1.2)),
                   const SizedBox(height: 2),
-                  Text('${widget.events.length} events · newest first', style: const TextStyle(fontSize: 13, color: Palette.faint)),
+                  Text('{n} events · newest first'.trf({'n': widget.events.length}), style: const TextStyle(fontSize: 13, color: Palette.faint)),
                 ]),
               ),
-              IconButton(tooltip: 'Close', onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
+              IconButton(tooltip: 'Close'.tr, onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
             ]),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(22, 0, 22, 12),
             child: Wrap(spacing: 6, runSpacing: 6, children: [
-              filter(null, 'All'),
+              filter(null, 'Everyone'.tr),
               for (final a in agents) filter(a, _agentName(a)),
             ]),
           ),
@@ -1207,7 +1208,7 @@ Future<void> _openEditor(BuildContext context, _StudioPageState s, int n, String
   final send = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: Text('Edit slide $n'),
+      title: Text('Edit slide {n}'.trf({'n': n})),
       content: SizedBox(
         width: 420,
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -1220,13 +1221,13 @@ Future<void> _openEditor(BuildContext context, _StudioPageState s, int n, String
             controller: feedback,
             autofocus: true,
             maxLines: 3,
-            decoration: const InputDecoration(labelText: 'What should change?', hintText: 'Bigger headline, move the logo to the bottom right'),
+            decoration: InputDecoration(labelText: 'What should change?'.tr, hintText: 'Bigger headline, move the logo to the bottom right'.tr),
           ),
         ]),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Send to the designer')),
+        TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancel'.tr)),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: Text('Send to the designer'.tr)),
       ],
     ),
   );
@@ -1265,24 +1266,24 @@ class _SiteAssetsState extends State<_SiteAssets> {
           Wrap(spacing: 6, runSpacing: 6, children: [
             for (final a in items) thumb(a, 72),
             ...extra,
-            if (items.isEmpty && extra.isEmpty) const Text('None found', style: TextStyle(color: Palette.faint, fontSize: 13)),
+            if (items.isEmpty && extra.isEmpty) Text('None found'.tr, style: const TextStyle(color: Palette.faint, fontSize: 13)),
           ]),
         ]);
     final summary = [
-      brand.isEmpty ? 'no logo' : 'logo',
-      '${colors.length} color${colors.length == 1 ? '' : 's'}',
-      '${photos.length} photo${photos.length == 1 ? '' : 's'}',
+      brand.isEmpty ? 'no logo'.tr : 'logo'.tr,
+      colors.length == 1 ? '1 color'.tr : '{n} colors'.trf({'n': colors.length}),
+      photos.length == 1 ? '1 photo'.tr : '{n} photos'.trf({'n': photos.length}),
     ].join(' · ');
     return _Card(
-      title: 'Found on your website',
-      subtitle: 'The carousel uses only this: $summary.',
-      trailing: TextButton(onPressed: () => setState(() => open = !open), child: Text(open ? 'Hide' : 'See all')),
+      title: 'Found on your website'.tr,
+      subtitle: 'The carousel uses only this: {summary}.'.trf({'summary': summary}),
+      trailing: TextButton(onPressed: () => setState(() => open = !open), child: Text(open ? 'Hide'.tr : 'See all'.tr)),
       child: open
           ? Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              group('Brand', brand, [for (final c in colors) _Swatch(hex: c)]),
+              group('Brand'.tr, brand, [for (final c in colors) _Swatch(hex: c)]),
               const SizedBox(height: 16),
-              group('Photos', photos),
-              if (other.isNotEmpty) ...[const SizedBox(height: 16), group('Other assets', other)],
+              group('Photos'.tr, photos),
+              if (other.isNotEmpty) ...[const SizedBox(height: 16), group('Other assets'.tr, other)],
             ])
           : LayoutBuilder(builder: (context, box) {
               // One row of small thumbnails: as many as fit, then how many more.
@@ -1375,7 +1376,7 @@ class _SlidesStrip extends StatelessWidget {
   List<(int, BigImage)> gallery(List<Map<String, dynamic>> slides) => [
         for (final slide in slides)
           if (events.where((e) => e.slide == slide['n'] && (e.type == 'slide' || e.type == 'snapshot')).lastOrNull case final e?)
-            if ((e.data as Map?)?['url'] case final String url) (slide['n'] as int, (image: NetworkImage(Api.fileUrl(url)), caption: 'Slide ${slide['n']}')),
+            if ((e.data as Map?)?['url'] case final String url) (slide['n'] as int, (image: NetworkImage(Api.fileUrl(url)), caption: 'Slide {n}'.trf({'n': slide['n']}))),
       ];
 
   void showSlide(BuildContext context, List<Map<String, dynamic>> slides, int n) {
@@ -1428,7 +1429,7 @@ class _SlidesStrip extends StatelessWidget {
                   right: 6,
                   top: 6,
                   child: IconButton.filledTonal(
-                    tooltip: 'See it big',
+                    tooltip: 'See it big'.tr,
                     iconSize: 18,
                     visualDensity: VisualDensity.compact,
                     onPressed: () => showSlide(context, slides, n),
@@ -1440,9 +1441,9 @@ class _SlidesStrip extends StatelessWidget {
                 top: 8,
                 child: _Badge(
                   label: finalSlide != null
-                      ? ((finalSlide.data as Map)['approved'] == true ? 'Approved' : 'Kept')
+                      ? ((finalSlide.data as Map)['approved'] == true ? 'Approved'.tr : 'Kept'.tr)
                       : review != null
-                          ? 'Critic: ${(review.data as Map)['score']}/10'
+                          ? 'Critic: {score}/10'.trf({'score': (review.data as Map)['score']})
                           : '$n',
                   color: finalSlide != null
                       ? ((finalSlide.data as Map)['approved'] == true ? Palette.success : Palette.muted)
@@ -1573,8 +1574,8 @@ class _DoneCard extends StatelessWidget {
     final data = event.data as Map<String, dynamic>;
     final caption = '${data['caption']}\n\n${hashtagsOf(data['hashtags']).join(' ')}';
     return _Card(
-      title: data['edited'] != null ? 'Slide ${data['edited']} updated' : 'Your carousel is ready',
-      subtitle: data['cost'] is num ? 'Made by the agents for US\$${(data['cost'] as num).toStringAsFixed(2)} in model calls.' : null,
+      title: data['edited'] != null ? 'Slide {n} updated'.trf({'n': data['edited']}) : 'Your carousel is ready'.tr,
+      subtitle: data['cost'] is num ? 'Made by the agents for {cost} in model calls.'.trf({'cost': 'US\$${(data['cost'] as num).toStringAsFixed(2)}'}) : null,
       trailing: Container(
         width: 36,
         height: 36,
@@ -1608,19 +1609,19 @@ class _DoneCard extends StatelessWidget {
         Wrap(spacing: 8, runSpacing: 8, children: [
           FilledButton.icon(
             icon: const Icon(Icons.download_rounded, size: 18),
-            label: const Text('Download everything (ZIP)'),
+            label: Text('Download everything (ZIP)'.tr),
             onPressed: () => _download(Api.fileUrl('/api/runs/$runId/download')),
           ),
           OutlinedButton.icon(
             icon: const Icon(Icons.copy_rounded, size: 16),
-            label: const Text('Copy caption'),
+            label: Text('Copy caption'.tr),
             onPressed: () => Clipboard.setData(ClipboardData(text: caption)),
           ),
           // One reel from the whole carousel; the slides are not animated one by one.
           if (onReel != null)
             OutlinedButton.icon(
               icon: const Icon(Icons.movie_creation_outlined, size: 16),
-              label: Text(data['reel'] == null ? 'Make the 30 s reel' : 'Make the reel again'),
+              label: Text(data['reel'] == null ? 'Make the 30 s reel'.tr : 'Make the reel again'.tr),
               onPressed: onReel,
             ),
         ]),
@@ -1660,7 +1661,7 @@ class _EventRow extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           Text(
-            [event.type, if (event.slide != null) 'slide ${event.slide}'].join(' · '),
+            [event.type, if (event.slide != null) 'slide {n}'.trf({'n': event.slide})].join(' · '),
             style: mono(size: 11, color: Palette.faint),
           ),
         ]),
@@ -1741,8 +1742,8 @@ class _Start extends StatelessWidget {
               child: Column(children: [
                 Image.asset('assets/mascot.png', width: 150, height: 150),
                 const SizedBox(height: 18),
-                const Text('Your AI marketing crew for carousels and reels',
-                    textAlign: TextAlign.center, style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -0.8, height: 1.15)),
+                Text('Your AI marketing crew for carousels and reels'.tr,
+                    textAlign: TextAlign.center, style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -0.8, height: 1.15)),
                 const SizedBox(height: 28),
                 // The search field: the website and the way on.
                 Container(
@@ -1758,26 +1759,26 @@ class _Start extends StatelessWidget {
                         onSubmitted: (_) => next(),
                         onChanged: (_) => s.refresh(),
                         style: const TextStyle(fontSize: 17),
-                        decoration: const InputDecoration(
-                          hintText: 'yourbusiness.com',
+                        decoration: InputDecoration(
+                          hintText: 'yourbusiness.com'.tr,
                           filled: false,
                           border: InputBorder.none,
                           enabledBorder: InputBorder.none,
                           focusedBorder: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 14),
+                          contentPadding: const EdgeInsets.symmetric(vertical: 14),
                         ),
                       ),
                     ),
                     FilledButton(
                       onPressed: s.website.text.trim().isEmpty ? null : next,
                       style: FilledButton.styleFrom(minimumSize: const Size(0, 50), padding: const EdgeInsets.symmetric(horizontal: 26), shape: const StadiumBorder()),
-                      child: const Row(mainAxisSize: MainAxisSize.min, children: [Text('Next'), SizedBox(width: 6), Icon(Icons.arrow_forward_rounded, size: 18)]),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [Text('Next'.tr), const SizedBox(width: 6), const Icon(Icons.arrow_forward_rounded, size: 18)]),
                     ),
                   ]),
                 ),
                 const SizedBox(height: 14),
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  const Text('Slides in ', style: TextStyle(color: Palette.muted, fontSize: 13.5)),
+                  Text('Slides in '.tr, style: const TextStyle(color: Palette.muted, fontSize: 13.5)),
                   DropdownButton<String>(
                     value: s.language,
                     underline: const SizedBox(),
@@ -1804,7 +1805,7 @@ class _Start extends StatelessWidget {
             constraints: const BoxConstraints(maxWidth: 1120),
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
-                TextButton.icon(onPressed: () => s.setStartStep(0), icon: const Icon(Icons.arrow_back_rounded, size: 18), label: const Text('Back')),
+                TextButton.icon(onPressed: () => s.setStartStep(0), icon: const Icon(Icons.arrow_back_rounded, size: 18), label: Text('Back'.tr)),
                 const Spacer(),
               ]),
               const SizedBox(height: 18),
@@ -1813,19 +1814,19 @@ class _Start extends StatelessWidget {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Pick a style for $host', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
-                    const Text('The agents follow it with your logo, colors and photos. Or let them decide from your website.', style: TextStyle(color: Palette.muted)),
+                    Text('Pick a style for {host}'.trf({'host': host}), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
+                    Text('The agents follow it with your logo, colors and photos. Or let them decide from your website.'.tr, style: const TextStyle(color: Palette.muted)),
                   ]),
                 ),
                 OutlinedButton(onPressed: () {
                   s.chooseStyle(null);
                   s.start();
-                }, child: const Text('Let the agents decide')),
+                }, child: Text('Let the agents decide'.tr)),
                 const SizedBox(width: 8),
                 FilledButton.icon(
                   onPressed: s.reference == null ? null : s.start,
                   icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Start with this style'),
+                  label: Text('Start with this style'.tr),
                 ),
               ]),
               if (s.error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(s.error!, style: const TextStyle(color: Palette.danger))),
@@ -1907,8 +1908,8 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
     if (target == null) return const SizedBox.shrink();
     final color = live ? Palette.danger : Palette.primary;
     final text = live
-        ? 'The agents are designing ${liveHost.isEmpty ? 'a carousel' : liveHost} right now'
-        : 'See how the agents designed ${replayName.isEmpty ? 'a carousel' : replayName}, step by step';
+        ? 'The agents are designing {name} right now'.trf({'name': liveHost.isEmpty ? 'a carousel'.tr : liveHost})
+        : 'See how the agents designed {name}, step by step'.trf({'name': replayName.isEmpty ? 'a carousel'.tr : replayName});
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 680),
       child: Material(
@@ -1925,7 +1926,7 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
                 child: Container(width: 9, height: 9, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
               ),
               const SizedBox(width: 8),
-              Text(live ? 'LIVE' : 'REPLAY', style: mono(size: 11, color: color, weight: FontWeight.w800, spacing: 0.6)),
+              Text(live ? 'LIVE'.tr : 'REPLAY'.tr, style: mono(size: 11, color: color, weight: FontWeight.w800, spacing: 0.6)),
               const SizedBox(width: 10),
               Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Palette.ink))),
               const SizedBox(width: 12),
@@ -1933,7 +1934,7 @@ class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderState
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(999)),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Text(live ? 'Watch it live' : 'Watch a replay', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white)),
+                  Text(live ? 'Watch it live'.tr : 'Watch a replay'.tr, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white)),
                   const SizedBox(width: 4),
                   const Icon(Icons.arrow_forward_rounded, size: 16, color: Colors.white),
                 ]),

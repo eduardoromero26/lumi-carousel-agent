@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'api.dart';
+import 'i18n.dart';
 import 'main.dart' show Palette;
 
 // What the agents learned, as a library: shelves (design, critic, fixes, quality,
@@ -88,27 +89,27 @@ class _LearnedPageState extends State<LearnedPage> {
                       constraints: const BoxConstraints(maxWidth: 1100),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Row(children: [
-                          const Expanded(
+                          Expanded(
                             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text('What the agents learned', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
-                              SizedBox(height: 2),
-                              Text('Vote each lesson: 👍 keeps it, 👎 turns it off and tells the agent why.', style: TextStyle(color: Palette.muted)),
+                              Text('What the agents learned'.tr, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+                              const SizedBox(height: 2),
+                              Text('Vote each lesson: 👍 keeps it, 👎 turns it off and tells the agent why.'.tr, style: const TextStyle(color: Palette.muted)),
                             ]),
                           ),
-                          IconButton(tooltip: 'Refresh', onPressed: load, icon: const Icon(Icons.refresh)),
+                          IconButton(tooltip: 'Refresh'.tr, onPressed: load, icon: const Icon(Icons.refresh)),
                         ]),
                         const SizedBox(height: 16),
                         TextField(
                           controller: search,
                           onChanged: (_) => setState(() {}),
-                          decoration: const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Search the library'),
+                          decoration: InputDecoration(prefixIcon: const Icon(Icons.search), hintText: 'Search the library'.tr),
                         ),
                         const SizedBox(height: 12),
                         Wrap(spacing: 8, runSpacing: 8, children: [
-                          ChoiceChip(label: const Text('All'), selected: shelf == null, onSelected: (_) => setState(() => shelf = null)),
+                          ChoiceChip(label: Text('All'.tr), selected: shelf == null, onSelected: (_) => setState(() => shelf = null)),
                           for (final s in list)
                             ChoiceChip(
-                              label: Text('${s['title']} ${(s['cards'] as List).length}'),
+                              label: Text('${(s['title'] as String).tr} ${(s['cards'] as List).length}'),
                               selected: shelf == s['id'],
                               onSelected: (_) => setState(() => shelf = shelf == s['id'] ? null : s['id'] as String),
                             ),
@@ -141,16 +142,16 @@ class _ShelfView extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 28),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text((shelf['title'] as String).toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Palette.primary, letterSpacing: 0.8)),
+        Text((shelf['title'] as String).tr.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: Palette.primary, letterSpacing: 0.8)),
         const SizedBox(height: 4),
-        Text(shelf['about'] as String, style: const TextStyle(color: Palette.muted)),
+        Text(_about(shelf['about'] as String), style: const TextStyle(color: Palette.muted)),
         const SizedBox(height: 12),
         if (cards.isEmpty)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Palette.border)),
-            child: const Text('Nothing here yet.', style: TextStyle(color: Palette.faint)),
+            child: Text('Nothing here yet.'.tr, style: const TextStyle(color: Palette.faint)),
           )
         else
           LayoutBuilder(builder: (context, box) {
@@ -213,7 +214,7 @@ class _LessonCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(color: Palette.dangerSoft, borderRadius: BorderRadius.circular(8)),
               child: Text(
-                feedback == null || feedback.isEmpty ? 'Turned off: the agents no longer use it.' : 'Turned off. You said: “$feedback”',
+                feedback == null || feedback.isEmpty ? 'Turned off: the agents no longer use it.'.tr : 'Turned off. You said: “{feedback}”'.trf({'feedback': feedback}),
                 style: const TextStyle(fontSize: 12, color: Palette.danger),
               ),
             ),
@@ -221,13 +222,13 @@ class _LessonCard extends StatelessWidget {
             Expanded(child: Text(evidence, style: const TextStyle(fontSize: 12, color: Palette.faint))),
             if (card['id'] != null) ...[
               IconButton(
-                tooltip: 'Right: keep it',
+                tooltip: 'Right: keep it'.tr,
                 visualDensity: VisualDensity.compact,
                 onPressed: () => onVote(1),
                 icon: Icon(vote == 1 ? Icons.thumb_up : Icons.thumb_up_outlined, size: 18, color: vote == 1 ? Palette.primary : Palette.faint),
               ),
               IconButton(
-                tooltip: 'Learned wrong: turn it off',
+                tooltip: 'Learned wrong: turn it off'.tr,
                 visualDensity: VisualDensity.compact,
                 onPressed: () => onVote(-1),
                 icon: Icon(off ? Icons.thumb_down : Icons.thumb_down_outlined, size: 18, color: off ? Palette.danger : Palette.faint),
@@ -247,7 +248,7 @@ Future<String?> _askWhyWrong(BuildContext context, String title) {
   return showDialog<String>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      title: const Text('What did the agents learn wrong?'),
+      title: Text('What did the agents learn wrong?'.tr),
       content: SizedBox(
         width: 460,
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -258,17 +259,25 @@ Future<String?> _askWhyWrong(BuildContext context, String title) {
             autofocus: true,
             minLines: 2,
             maxLines: 5,
-            decoration: const InputDecoration(
-              hintText: 'e.g. bold type was fine; what I disliked were the cut photos',
-              helperText: 'Optional. The lesson is turned off and the agent reads your words.',
+            decoration: InputDecoration(
+              hintText: 'e.g. bold type was fine; what I disliked were the cut photos'.tr,
+              helperText: 'Optional. The lesson is turned off and the agent reads your words.'.tr,
             ),
           ),
         ]),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(dialogContext, text.text), child: const Text('Turn it off')),
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: Text('Cancel'.tr)),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, text.text), child: Text('Turn it off'.tr)),
       ],
     ),
   ).whenComplete(text.dispose);
+}
+
+// The shelves' blurbs come from the server in English; Decor's carries a count at the end.
+String _about(String about) {
+  final kept = RegExp(r' Also kept: (\d+) subjects SAM cut out, never paid twice for the same photo\.$').firstMatch(about);
+  if (kept == null) return about.tr;
+  final base = about.substring(0, kept.start).tr;
+  return '$base ${'Also kept: {n} subjects SAM cut out, never paid twice for the same photo.'.trf({'n': kept.group(1)})}';
 }

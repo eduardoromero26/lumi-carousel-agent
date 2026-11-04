@@ -25,7 +25,8 @@ void setLanguage(String lang) {
   } catch (_) {}
 }
 
-const _es = {...esMain, ...esRoom, ...esFeed, ...esQueue};
+// Not const: a key shared by two catalogs is fine, as long as both say the same thing.
+final Map<String, String> _es = {...esMain, ...esRoom, ...esFeed, ...esQueue};
 
 extension Tr on String {
   // 'Choose its photo'.tr

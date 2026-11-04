@@ -191,7 +191,7 @@ class _View {
           final score = (data is Map ? data['score'] as int? : null) ?? int.tryParse(RegExp(r'\((\d+)/10\)').firstMatch(e.text)?[1] ?? '');
           if (n == null) break;
           final s = slide(n);
-          if (s.rounds.isEmpty) s.rounds.add(_Round(s.url ?? '', 'Round 1'));
+          if (s.rounds.isEmpty) s.rounds.add(_Round(s.url ?? '', 'Round 1'.tr));
           final r = s.rounds.last
             ..score = score
             ..approved = data is Map ? data['approved'] as bool? : e.text.startsWith('All checks');
@@ -533,13 +533,13 @@ class _Picker extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(24, 24, 32, 8),
         sliver: SliverToBoxAdapter(
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            if (onExit != null) IconButton(tooltip: 'Close', onPressed: onExit, icon: const Icon(Icons.close_rounded, color: _C.muted)),
+            if (onExit != null) IconButton(tooltip: 'Close'.tr, onPressed: onExit, icon: const Icon(Icons.close_rounded, color: _C.muted)),
             const SizedBox(width: 8),
-            const Expanded(
+            Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('Design it live', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
-                SizedBox(height: 4),
-                Text('Watch the agents make a carousel in GIMP, or open one they already made.', style: TextStyle(color: _C.muted, fontSize: 14.5)),
+                Text('Design it live'.tr, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
+                const SizedBox(height: 4),
+                Text('Watch the agents make a carousel in GIMP, or open one they already made.'.tr, style: const TextStyle(color: _C.muted, fontSize: 14.5)),
               ]),
             ),
           ]),
@@ -556,11 +556,11 @@ class _Picker extends StatelessWidget {
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(color: _C.panel, borderRadius: BorderRadius.circular(12), border: Border.all(color: _C.violet)),
                 child: Row(children: [
-                  const _Pill(text: 'Live', color: _C.bad, blink: true),
+                  _Pill(text: 'Live'.tr, color: _C.bad, blink: true),
                   const SizedBox(width: 12),
-                  Text('The agents are making a carousel right now', style: TextStyle(color: _C.text.withValues(alpha: 0.9))),
+                  Text('The agents are making a carousel right now'.tr, style: TextStyle(color: _C.text.withValues(alpha: 0.9))),
                   const Spacer(),
-                  Text('Watch →', style: mono(color: _C.violet, size: 13, weight: FontWeight.w700)),
+                  Text('Watch →'.tr, style: mono(color: _C.violet, size: 13, weight: FontWeight.w700)),
                 ]),
               ),
             ),
@@ -761,14 +761,14 @@ class _RoomState extends State<_Room> {
     final width = MediaQuery.sizeOf(context).width;
     final replay = !liveNow && editing == null;
     final status = v.error != null
-        ? ('Stopped', _C.bad, false)
+        ? ('Stopped'.tr, _C.bad, false)
         : editing != null
-            ? ('Editing slide ${editing!.slide}', _C.violet, true)
+            ? ('Editing slide {n}'.trf({'n': editing!.slide}), _C.violet, true)
             : liveNow
-                ? ('Live', _C.bad, true)
+                ? ('Live'.tr, _C.bad, true)
                 : v.finished && shown >= all.length
-                    ? ('Ready${v.cost == null ? '' : ' · US\$${v.cost!.toStringAsFixed(2)}'}', _C.ok, false)
-                    : ('Replay', _C.violet, false);
+                    ? ('${'Ready'.tr}${v.cost == null ? '' : ' · US\$${v.cost!.toStringAsFixed(2)}'}', _C.ok, false)
+                    : ('Replay'.tr, _C.violet, false);
     final header = _Header(
       spend: v.tokens > 0 || v.cost != null ? (v.tokens, v.cost) : null,
       // Live it runs on the wall clock; in a replay, how long the run had gone at that point.
@@ -804,7 +804,7 @@ class _RoomState extends State<_Room> {
     final busyNow = liveNow || editing != null || (!v.finished && v.error == null && shown < all.length);
     final Widget work;
     if (v.error != null && !v.building) {
-      work = _Message(icon: Icons.error_outline_rounded, color: _C.bad, title: 'The run stopped', text: v.error!);
+      work = _Message(icon: Icons.error_outline_rounded, color: _C.bad, title: 'The run stopped'.tr, text: v.error!);
     } else if (v.plan == null) {
       work = _Reading(
         view: v,
@@ -852,12 +852,12 @@ class _RoomState extends State<_Room> {
     final stage = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       if (v.building) ...[
         Row(children: [
-          _Tab(label: 'Editor', icon: Icons.layers_outlined, on: tab == 'gimp', onTap: () => setState(() => stageTab = 'gimp')),
+          _Tab(label: 'Editor'.tr, icon: Icons.layers_outlined, on: tab == 'gimp', onTap: () => setState(() => stageTab = 'gimp')),
           const SizedBox(width: 6),
-          _Tab(label: 'Preview', icon: Icons.phone_iphone_rounded, on: tab == 'preview', onTap: () => setState(() => stageTab = 'preview')),
+          _Tab(label: 'Preview'.tr, icon: Icons.phone_iphone_rounded, on: tab == 'preview', onTap: () => setState(() => stageTab = 'preview')),
           if (v.reelShots != null) ...[
             const SizedBox(width: 6),
-            _Tab(label: 'Reel', icon: Icons.movie_outlined, on: tab == 'reel', onTap: () => setState(() => stageTab = 'reel')),
+            _Tab(label: 'Reel'.tr, icon: Icons.movie_outlined, on: tab == 'reel', onTap: () => setState(() => stageTab = 'reel')),
           ],
         ]),
         const SizedBox(height: 10),
@@ -937,9 +937,9 @@ class _Header extends StatelessWidget {
           height: 56,
           child: Row(children: [
             const SizedBox(width: 8),
-            if (onExit != null) IconButton(tooltip: 'Close', onPressed: onExit, icon: const Icon(Icons.close_rounded, color: _C.muted)),
+            if (onExit != null) IconButton(tooltip: 'Close'.tr, onPressed: onExit, icon: const Icon(Icons.close_rounded, color: _C.muted)),
             // Standalone (?view=room) there is no app to close back to: the arrow goes to the list.
-            if (onExit == null) IconButton(tooltip: 'All carousels', onPressed: onBack, icon: const Icon(Icons.arrow_back_rounded, color: _C.muted)),
+            if (onExit == null) IconButton(tooltip: 'All carousels'.tr, onPressed: onBack, icon: const Icon(Icons.arrow_back_rounded, color: _C.muted)),
             Container(
               width: 34,
               height: 34,
@@ -957,7 +957,7 @@ class _Header extends StatelessWidget {
                         ),
             ),
             Flexible(
-              child: Text(host.isEmpty ? 'Opening the website…' : host, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+              child: Text(host.isEmpty ? 'Opening the website…'.tr : host, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
             ),
             const SizedBox(width: 14),
             _Pill(text: status.$1, color: status.$2, blink: status.$3),
@@ -986,7 +986,7 @@ class _Header extends StatelessWidget {
                 onPressed: onStop,
                 style: OutlinedButton.styleFrom(foregroundColor: _C.bad, side: const BorderSide(color: _C.bad), minimumSize: const Size(0, 36)),
                 icon: const Icon(Icons.stop_circle_outlined, size: 18),
-                label: const Text('Stop'),
+                label: Text('Stop'.tr),
               ),
             const SizedBox(width: 8),
             ?replay,
@@ -1086,9 +1086,9 @@ class _Replay extends StatelessWidget {
               ),
             ),
           ),
-        IconButton(tooltip: playing ? 'Pause' : 'Play', onPressed: onPlay, icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: _C.text)),
-        IconButton(tooltip: 'From the start', onPressed: onRestart, icon: const Icon(Icons.replay_rounded, color: _C.muted)),
-        IconButton(tooltip: 'Jump to the end', onPressed: onEnd, icon: const Icon(Icons.skip_next_rounded, color: _C.muted)),
+        IconButton(tooltip: playing ? 'Pause'.tr : 'Play'.tr, onPressed: onPlay, icon: Icon(playing ? Icons.pause_rounded : Icons.play_arrow_rounded, color: _C.text)),
+        IconButton(tooltip: 'From the start'.tr, onPressed: onRestart, icon: const Icon(Icons.replay_rounded, color: _C.muted)),
+        IconButton(tooltip: 'Jump to the end'.tr, onPressed: onEnd, icon: const Icon(Icons.skip_next_rounded, color: _C.muted)),
       ]);
 
   // Where the replay is; a tap jumps there.
@@ -1154,11 +1154,11 @@ class _Reading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final site = view.site;
-    final last = view.said['analyst']?.event.text ?? view.lines.lastOrNull?.event.text ?? 'Opening the website…';
+    final last = view.said['analyst']?.event.text ?? view.lines.lastOrNull?.event.text ?? 'Opening the website…'.tr;
     if (site == null) {
       return _Panel(
-        title: 'Reading the website',
-        child: _Message(icon: Icons.travel_explore_rounded, color: _colorOf('analyst'), title: 'The analyst is reading the website', text: last, blink: true),
+        title: 'Reading the website'.tr,
+        child: _Message(icon: Icons.travel_explore_rounded, color: _colorOf('analyst'), title: 'The analyst is reading the website'.tr, text: last, blink: true),
       );
     }
     final assets = (site['assets'] as List? ?? const []).whereType<Map>().toList();
@@ -1167,32 +1167,32 @@ class _Reading extends StatelessWidget {
     final name = view.business ?? host;
     Widget label(String text) => Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(text.toUpperCase(), style: mono(size: 10, color: _C.faint, weight: FontWeight.w800, spacing: 0.6)));
     return _Panel(
-      title: 'What the analyst found on the website',
-      trailing: Text('${images.length} images', style: mono(size: 11, color: _C.faint)),
+      title: 'What the analyst found on the website'.tr,
+      trailing: Text('{n} images'.trf({'n': images.length}), style: mono(size: 11, color: _C.faint)),
       child: ListView(padding: const EdgeInsets.all(16), children: [
         // The brand as the analyst read it: its logo, its name and its colors.
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            label('Logo'),
+            label('Logo'.tr),
             Container(
               height: 64,
               width: 150,
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8), border: Border.all(color: _C.line)),
-              child: site['logo'] != null ? _Net('${site['logo']}', fit: BoxFit.contain) : const Center(child: Text('No logo found', style: TextStyle(fontSize: 11, color: _C.faint))),
+              child: site['logo'] != null ? _Net('${site['logo']}', fit: BoxFit.contain) : Center(child: Text('No logo found'.tr, style: const TextStyle(fontSize: 11, color: _C.faint))),
             ),
           ]),
           const SizedBox(width: 24),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              label('Brand'),
+              label('Brand'.tr),
               Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
               if (host.isNotEmpty && host != name) Text(host, style: mono(size: 11.5, color: _C.faint)),
             ]),
           ),
           const SizedBox(width: 24),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            label('Brand colors'),
+            label('Brand colors'.tr),
             Row(children: [
               for (final c in colors)
                 Padding(
@@ -1213,17 +1213,17 @@ class _Reading extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
             decoration: BoxDecoration(color: _C.violet.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(10), border: Border.all(color: _C.violet.withValues(alpha: 0.4))),
             child: Row(children: [
-              _Countdown(until: view.pickUntil!, label: 'Director starts in'),
+              _Countdown(until: view.pickUntil!, label: 'Director starts in'.tr),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   chosen.isEmpty
-                      ? 'Tap the images that must be on the slides. With none picked, the director uses the analyst\'s choice.'
-                      : '${chosen.length} picked: the director uses only these.',
+                      ? 'Tap the images that must be on the slides. With none picked, the director uses the analyst\'s choice.'.tr
+                      : '{n} picked: the director uses only these.'.trf({'n': chosen.length}),
                   style: const TextStyle(fontSize: 13, color: _C.muted),
                 ),
               ),
-              FilledButton.icon(onPressed: onConfirm, icon: const Icon(Icons.check_rounded), label: const Text('Confirm images')),
+              FilledButton.icon(onPressed: onConfirm, icon: const Icon(Icons.check_rounded), label: Text('Confirm images'.tr)),
             ]),
           ),
         // The images by what they show.
@@ -1231,7 +1231,7 @@ class _Reading extends StatelessWidget {
           if (images.any((a) => (a['kind'] ?? 'other') == kind)) ...[
             Padding(
               padding: const EdgeInsets.only(top: 6, bottom: 8),
-              child: Text('$title (${images.where((a) => (a['kind'] ?? 'other') == kind).length})', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+              child: Text('${title.tr} (${images.where((a) => (a['kind'] ?? 'other') == kind).length})', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
             ),
             Wrap(spacing: 8, runSpacing: 8, children: [
               for (final a in images.where((a) => (a['kind'] ?? 'other') == kind))
@@ -1274,10 +1274,10 @@ class _AssetTile extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(color: _C.ok, borderRadius: BorderRadius.circular(12)),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.check_rounded, size: 12, color: Colors.white),
-                  SizedBox(width: 3),
-                  Text('Use', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.check_rounded, size: 12, color: Colors.white),
+                  const SizedBox(width: 3),
+                  Text('Use'.tr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
                 ]),
               ),
             ),
@@ -1464,7 +1464,7 @@ class _GimpState extends State<_Gimp> {
                 TextButton.icon(
                   onPressed: () => widget.onPin(null),
                   icon: const Icon(Icons.my_location_rounded, size: 14),
-                  label: const Text('Follow the designer', style: TextStyle(fontSize: 12)),
+                  label: Text('Follow the designer'.tr, style: const TextStyle(fontSize: 12)),
                 ),
             ]),
           ),
@@ -1480,7 +1480,7 @@ class _GimpState extends State<_Gimp> {
                   onLayerTap: tapLayer,
                   say: _pointerOf(widget.view, widget.busy) == null ? null : widget.view.said[_pointerOf(widget.view, widget.busy)!.key]?.event.text.split('\n').first,
                   stamp: _stampOf(s, roundShown, chosen != null),
-                  onOpen: image == null || image.isEmpty ? null : () => showBig(context, NetworkImage(Api.fileUrl(image)), caption: 'Slide ${s.n}'),
+                  onOpen: image == null || image.isEmpty ? null : () => showBig(context, NetworkImage(Api.fileUrl(image)), caption: 'Slide {n}'.trf({'n': s.n})),
                 ),
               ),
               SizedBox(
@@ -1493,7 +1493,7 @@ class _GimpState extends State<_Gimp> {
                       height: 30,
                       decoration: const BoxDecoration(color: _G.bar, border: Border(bottom: BorderSide(color: _G.edge), top: BorderSide(color: _G.edge))),
                       child: Row(children: [
-                        for (final (photo, icon, label) in [(false, Icons.layers_outlined, 'Layers'), (true, Icons.photo_library_outlined, 'Photos · ${allPhotos.length}')])
+                        for (final (photo, icon, label) in [(false, Icons.layers_outlined, 'Layers'.tr), (true, Icons.photo_library_outlined, 'Photos · {n}'.trf({'n': allPhotos.length}))])
                           InkWell(
                             onTap: () => setState(() => photosTab = photo),
                             child: Container(
@@ -1512,7 +1512,7 @@ class _GimpState extends State<_Gimp> {
                       SizedBox(
                         height: 300,
                         child: allPhotos.isEmpty
-                            ? const Center(child: Text('The photos show once the analyst reads the website.', textAlign: TextAlign.center, style: TextStyle(color: _G.dim, fontSize: 11.5)))
+                            ? Center(child: Text('The photos show once the analyst reads the website.'.tr, textAlign: TextAlign.center, style: const TextStyle(color: _G.dim, fontSize: 11.5)))
                             : GridView.builder(
                                 padding: const EdgeInsets.all(8),
                                 gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 90, mainAxisSpacing: 6, crossAxisSpacing: 6, childAspectRatio: 0.8),
@@ -1528,7 +1528,7 @@ class _GimpState extends State<_Gimp> {
                     SizedBox(
                       height: 30.0 * (layers.isEmpty ? 2 : layers.length.clamp(3, 9)) + 4,
                       child: layers.isEmpty
-                          ? const Center(child: Text('The layers show once the slide is saved.', style: TextStyle(color: _G.dim, fontSize: 11.5)))
+                          ? Center(child: Text('The layers show once the slide is saved.'.tr, style: const TextStyle(color: _G.dim, fontSize: 11.5)))
                           : ListView.builder(
                               padding: const EdgeInsets.symmetric(vertical: 2),
                               itemCount: layers.length,
@@ -1543,7 +1543,7 @@ class _GimpState extends State<_Gimp> {
                               ),
                             ),
                     ),
-                    _DockTab(icon: Icons.gavel_rounded, title: 'Critic', color: _colorOf('critic')),
+                    _DockTab(icon: Icons.gavel_rounded, title: 'Critic'.tr, color: _colorOf('critic')),
                     Expanded(
                       child: _CriticDock(
                         slide: s,
@@ -1594,11 +1594,11 @@ class _GimpState extends State<_Gimp> {
 
   Future<void> send(String feedback) async {
     if (!widget.canEdit) {
-      tell('You can change the slides once the carousel is ready and GIMP is free (pause the queue).');
+      tell('You can change the slides once the carousel is ready and GIMP is free (pause the queue).'.tr);
       return;
     }
     final failed = await widget.onEdit(widget.slide.n, feedback);
-    tell(failed ?? 'Sent to the designer: it rebuilds slide ${widget.slide.n} in GIMP.');
+    tell(failed ?? 'Sent to the designer: it rebuilds slide {n} in GIMP.'.trf({'n': widget.slide.n}));
     if (failed == null) Future.delayed(const Duration(seconds: 20), loadPhotos);
   }
 
@@ -1626,18 +1626,32 @@ class _GimpState extends State<_Gimp> {
     };
     final plan = (widget.view.plan?['slides'] as List?)?.whereType<Map>().where((x) => x['n'] == widget.slide.n).firstOrNull;
     final controller = TextEditingController(text: '${plan?[field] ?? ''}');
+    final fieldLabel = switch (field) {
+      'headline' => 'Headline'.tr,
+      'body' => 'Body'.tr,
+      'button' => 'Button'.tr,
+      'eyebrow' => 'Eyebrow'.tr,
+      _ => field,
+    };
+    final title = switch (field) {
+      'headline' => 'Change the headline'.tr,
+      'body' => 'Change the body'.tr,
+      'button' => 'Change the button'.tr,
+      'eyebrow' => 'Change the eyebrow'.tr,
+      _ => 'Change the {field}'.trf({'field': field}),
+    };
     final text = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         titlePadding: EdgeInsets.zero,
-        title: _DialogHeader(kicker: 'SLIDE ${widget.slide.n.toString().padLeft(2, '0')} · ${field.toUpperCase()}', title: 'Change the ${field == 'button' ? 'button' : field}', text: 'The designer rebuilds the slide in GIMP with your words, exactly as you write them.'),
+        title: _DialogHeader(kicker: '${'Slide {n}'.trf({'n': widget.slide.n.toString().padLeft(2, '0')})} · $fieldLabel'.toUpperCase(), title: title, text: 'The designer rebuilds the slide in GIMP with your words, exactly as you write them.'.tr),
         content: SizedBox(
           width: 480,
           child: TextField(controller: controller, autofocus: true, maxLines: 4, minLines: 2, style: const TextStyle(fontSize: 15, color: _C.text, height: 1.4)),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          FilledButton.icon(onPressed: () => Navigator.pop(context, controller.text.trim()), icon: const Icon(Icons.send_rounded, size: 18), label: const Text('Send to the designer')),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel'.tr)),
+          FilledButton.icon(onPressed: () => Navigator.pop(context, controller.text.trim()), icon: const Icon(Icons.send_rounded, size: 18), label: Text('Send to the designer'.tr)),
         ],
       ),
     );
@@ -1662,10 +1676,10 @@ class _GimpState extends State<_Gimp> {
   }
 
   static (String, Color)? _stampOf(_Slide s, _Round? r, bool chosen) {
-    if (r?.score != null) return ('${r!.approved == true ? 'Approved' : 'Rejected'} · ${r.score}/10', r.approved == true ? _C.ok : _C.bad);
+    if (r?.score != null) return ('${r!.approved == true ? 'Approved'.tr : 'Rejected'.tr} · ${r.score}/10', r.approved == true ? _C.ok : _C.bad);
     if (chosen) return null;
-    if (s.done) return s.approved == true ? ('Approved', _C.ok) : ('Kept', _C.warn);
-    return ('The critic is looking', _colorOf('critic'));
+    if (s.done) return s.approved == true ? ('Approved'.tr, _C.ok) : ('Kept'.tr, _C.warn);
+    return ('The critic is looking'.tr, _colorOf('critic'));
   }
 }
 
@@ -1749,7 +1763,7 @@ class _Toolbox extends StatelessWidget {
         child: Column(children: [
           for (var i = 0; i < tools.length; i++)
             Tooltip(
-              message: tools[i].$2,
+              message: tools[i].$2.tr,
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 200),
                 width: 30,
@@ -2038,10 +2052,10 @@ class _CriticDock extends StatelessWidget {
         Row(children: [
           _Avatar(agent: critic, working: true, idle: false, size: 22),
           const SizedBox(width: 8),
-          Expanded(child: Text('Looking at slide ${slide.n}…', style: const TextStyle(color: _G.dim, fontSize: 12))),
+          Expanded(child: Text('Looking at slide {n}…'.trf({'n': slide.n}), style: const TextStyle(color: _G.dim, fontSize: 12))),
         ])
       else if (r == null)
-        const Text('Not judged yet.', style: TextStyle(color: _G.dim, fontSize: 12))
+        Text('Not judged yet.'.tr, style: const TextStyle(color: _G.dim, fontSize: 12))
       else ...[
         Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
           Text('${r.score}', style: mono(size: 34, color: r.approved == true ? _C.ok : _C.bad, weight: FontWeight.w800)),
@@ -2076,7 +2090,7 @@ class _CriticDock extends StatelessWidget {
             ),
         if (r.fixes.isNotEmpty) ...[
           const SizedBox(height: 10),
-          Text('FOR THE FIXER', style: mono(size: 10.5, color: _colorOf('fixer'), weight: FontWeight.w800, spacing: 0.3)),
+          Text('FOR THE FIXER'.tr, style: mono(size: 10.5, color: _colorOf('fixer'), weight: FontWeight.w800, spacing: 0.3)),
           for (final (fix, why) in r.fixes)
             Padding(
               padding: const EdgeInsets.only(top: 5),
@@ -2088,7 +2102,7 @@ class _CriticDock extends StatelessWidget {
               ),
             ),
         ],
-        if (r.approved == true && r.fails.isEmpty) const Padding(padding: EdgeInsets.only(top: 6), child: Text('Every check passed.', style: TextStyle(color: _G.dim))),
+        if (r.approved == true && r.fails.isEmpty) Padding(padding: const EdgeInsets.only(top: 6), child: Text('Every check passed.'.tr, style: const TextStyle(color: _G.dim))),
       ],
     ]);
   }
@@ -2264,21 +2278,21 @@ class _Progress extends StatelessWidget {
                             ? 3
                             : 4;
     final now = v.error != null
-        ? 'The run stopped'
+        ? 'The run stopped'.tr
         : switch (step) {
-            0 when v.pickUntil != null => 'Your turn: pick the images the agents can use',
-            0 => 'The analyst is reading your website',
-            1 => 'The director is planning the story',
-            2 when v.planUntil != null => 'Your turn: review the director\'s plan',
-            2 => 'The art director is choosing the look',
-            3 => 'Designing slide ${v.focus ?? done + 1} of $total in GIMP',
-            4 => 'The critic is checking the whole set',
+            0 when v.pickUntil != null => 'Your turn: pick the images the agents can use'.tr,
+            0 => 'The analyst is reading your website'.tr,
+            1 => 'The director is planning the story'.tr,
+            2 when v.planUntil != null => 'Your turn: review the director\'s plan'.tr,
+            2 => 'The art director is choosing the look'.tr,
+            3 => 'Designing slide {n} of {total} in GIMP'.trf({'n': v.focus ?? done + 1, 'total': total}),
+            4 => 'The critic is checking the whole set'.tr,
             5 when v.reelPhase && !v.finished => v.reelVerdicts.isNotEmpty
-                ? 'The critic is checking the reel shot by shot'
+                ? 'The critic is checking the reel shot by shot'.tr
                 : v.reelShots == null
-                    ? 'The director is planning the 30 s reel'
-                    : 'Making the 30 s reel in HyperFrames${v.reelRound > 0 ? ' (round ${v.reelRound + 1})' : ''}',
-            _ => v.reelPhase ? 'Your carousel and its reel are ready' : 'Your carousel is ready',
+                    ? 'The director is planning the 30 s reel'.tr
+                    : '${'Making the 30 s reel in HyperFrames'.tr}${v.reelRound > 0 ? ' (${'round {n}'.trf({'n': v.reelRound + 1})})' : ''}',
+            _ => v.reelPhase ? 'Your carousel and its reel are ready'.tr : 'Your carousel is ready'.tr,
           };
     final color = v.error != null ? _C.bad : (v.finished ? _C.ok : _C.violet);
     return Container(
@@ -2310,7 +2324,7 @@ class _Progress extends StatelessWidget {
                     const SizedBox(width: 5),
                     Flexible(
                       child: Text(
-                        '${i + 1}. ${steps[i]}${i == step && !v.finished ? ' · now' : ''}',
+                        '${i + 1}. ${steps[i].tr}${i == step && !v.finished ? ' · ${'now'.tr}' : ''}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 12, fontWeight: i == step ? FontWeight.w800 : FontWeight.w600, color: i == step ? color : (i < step || v.finished ? _C.text : _C.faint)),
@@ -2367,8 +2381,8 @@ class ViewSwitch extends StatelessWidget {
       padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), border: Border.all(color: _C.line)),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        option(false, Icons.crop_portrait_rounded, 'Normal'),
-        option(true, Icons.layers_outlined, 'Edit view'),
+        option(false, Icons.crop_portrait_rounded, 'Normal'.tr),
+        option(true, Icons.layers_outlined, 'Edit view'.tr),
       ]),
     );
   }
@@ -2448,7 +2462,7 @@ class _ShotVerdict extends StatelessWidget {
         Row(children: [
           _Avatar(agent: _agent('critic')!, working: true, idle: false, size: 22),
           const SizedBox(width: 8),
-          const Expanded(child: Text('The critic looks at every shot once it is rendered.', style: TextStyle(color: _G.dim, fontSize: 12))),
+          Expanded(child: Text('The critic looks at every shot once it is rendered.'.tr, style: const TextStyle(color: _G.dim, fontSize: 12))),
         ])
       else ...[
         if (v['url'] != null)
@@ -2458,7 +2472,7 @@ class _ShotVerdict extends StatelessWidget {
           ),
         Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
           Text('${v['score'] ?? '–'}', style: mono(size: 30, color: approved ? _C.ok : _C.bad, weight: FontWeight.w800)),
-          Padding(padding: const EdgeInsets.only(bottom: 6), child: Text('/10  ${approved ? 'approved' : 'rejected'}', style: mono(size: 12, color: _G.dim))),
+          Padding(padding: const EdgeInsets.only(bottom: 6), child: Text('/10  ${approved ? 'approved'.tr : 'rejected'.tr}', style: mono(size: 12, color: _G.dim))),
         ]),
         for (final (check, note) in fails)
           Padding(
@@ -2471,7 +2485,7 @@ class _ShotVerdict extends StatelessWidget {
           ),
         if (fixes.isNotEmpty) ...[
           const SizedBox(height: 10),
-          Text('FOR THE FIXER', style: mono(size: 10.5, color: _colorOf('fixer'), weight: FontWeight.w800, spacing: 0.3)),
+          Text('FOR THE FIXER'.tr, style: mono(size: 10.5, color: _colorOf('fixer'), weight: FontWeight.w800, spacing: 0.3)),
           for (final (fix, why) in fixes)
             Padding(
               padding: const EdgeInsets.only(top: 5),
@@ -2484,7 +2498,7 @@ class _ShotVerdict extends StatelessWidget {
       ],
       if (set != null) ...[
         const SizedBox(height: 14),
-        Text('THE WHOLE REEL · ${set!['score'] ?? '–'}/10', style: mono(size: 10.5, color: _G.dim, weight: FontWeight.w800, spacing: 0.3)),
+        Text('THE WHOLE REEL · {score}/10'.trf({'score': set!['score'] ?? '–'}), style: mono(size: 10.5, color: _G.dim, weight: FontWeight.w800, spacing: 0.3)),
         for (final e in setChecks.entries)
           if (e.value is Map)
             Padding(
@@ -2584,18 +2598,18 @@ const _elementNames = {
 };
 
 String _elementName(String target) {
-  if (target.isEmpty) return 'Shot (enters, leaves)';
+  if (target.isEmpty) return 'Shot (enters, leaves)'.tr;
   final parts = target.replaceAll(RegExp(r':not\([^)]*\)'), '').split(RegExp(r'\s+'));
   String one(String p) {
     final m = RegExp(r'^\.([a-z]+?)(\d*)$').firstMatch(p);
     if (m == null) return p.replaceAll('.', '');
-    final base = _elementNames[m[1]] ?? m[1]!;
+    final base = _elementNames[m[1]]?.tr ?? m[1]!;
     return m[2]!.isEmpty ? base : '$base ${int.parse(m[2]!) + 1}';
   }
 
   if (parts.length == 1 || one(parts.last) == one(parts.first)) return one(parts.last);
   // The words of the key word are the key word.
-  return parts.first == '.em' ? 'Key word' : '${one(parts.last)} · ${one(parts.first)}';
+  return parts.first == '.em' ? 'Key word'.tr : '${one(parts.last)} · ${one(parts.first)}';
 }
 
 IconData _elementIcon(String target) {
@@ -2701,15 +2715,15 @@ class _ReelEditorState extends State<_ReelEditor> {
                     child: Container(
                       decoration: const BoxDecoration(color: _G.dock, border: Border(right: BorderSide(color: _G.edge))),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        _DockTab(icon: Icons.layers_outlined, title: 'Elements · shot $pick'),
+                        _DockTab(icon: Icons.layers_outlined, title: 'Elements · shot {n}'.trf({'n': pick})),
                         if (shot != null)
                           Padding(
                             padding: const EdgeInsets.fromLTRB(10, 8, 10, 4),
-                            child: Text('${shot.layout.replaceAll('_', ' ')} · ${shot.transition.replaceAll('_', ' ')} in · camera ${shot.camera.replaceAll('_', ' ')}', style: const TextStyle(fontSize: 11, color: _G.dim)),
+                            child: Text('{layout} · {transition} in · camera {camera}'.trf({'layout': shot.layout.replaceAll('_', ' '), 'transition': shot.transition.replaceAll('_', ' '), 'camera': shot.camera.replaceAll('_', ' ')}), style: const TextStyle(fontSize: 11, color: _G.dim)),
                           ),
                         Expanded(
                           child: targets.isEmpty
-                              ? const Center(child: Text('The elements show once the composition is written.', textAlign: TextAlign.center, style: TextStyle(color: _G.dim, fontSize: 11.5)))
+                              ? Center(child: Text('The elements show once the composition is written.'.tr, textAlign: TextAlign.center, style: const TextStyle(color: _G.dim, fontSize: 11.5)))
                               : ListView(children: [
                                   for (final target in targets)
                                     MouseRegion(
@@ -2745,7 +2759,7 @@ class _ReelEditorState extends State<_ReelEditor> {
                                   ? _ReelVideo(url: videoUrl!, key: ValueKey(videoUrl))
                                   : v.reelVerdicts[pick]?['url'] != null
                                       ? _Net('${v.reelVerdicts[pick]!['url']}', fit: BoxFit.contain)
-                                      : const _Blink(child: ColoredBox(color: _G.ruler, child: Center(child: Text('Rendering with HyperFrames…', style: TextStyle(color: _G.dim))))),
+                                      : _Blink(child: ColoredBox(color: _G.ruler, child: Center(child: Text('Rendering with HyperFrames…'.tr, style: const TextStyle(color: _G.dim))))),
                               if (safe) const IgnorePointer(child: _SafeAreas()),
                               Positioned(
                                 right: 6,
@@ -2755,7 +2769,7 @@ class _ReelEditorState extends State<_ReelEditor> {
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                     decoration: BoxDecoration(color: safe ? _G.boundary : Colors.black54, borderRadius: BorderRadius.circular(5)),
-                                    child: Text('Safe areas', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: safe ? Colors.black : Colors.white)),
+                                    child: Text('Safe areas'.tr, style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: safe ? Colors.black : Colors.white)),
                                   ),
                                 ),
                               ),
@@ -2770,7 +2784,7 @@ class _ReelEditorState extends State<_ReelEditor> {
                     child: Container(
                       decoration: const BoxDecoration(color: _G.dock, border: Border(left: BorderSide(color: _G.edge))),
                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        _DockTab(icon: Icons.gavel_rounded, title: 'Critic · shot $pick', color: _colorOf('critic')),
+                        _DockTab(icon: Icons.gavel_rounded, title: 'Critic · shot {n}'.trf({'n': pick}), color: _colorOf('critic')),
                         Expanded(child: _ShotVerdict(shot: shot, verdict: v.reelVerdicts[pick], set: v.reelSet)),
                       ]),
                     ),
@@ -2800,12 +2814,12 @@ class _ReelEditorState extends State<_ReelEditor> {
                 child: Row(children: [
                   Text('$time / 00:30.00', style: mono(size: 11, color: _G.text)),
                   const SizedBox(width: 16),
-                  Text('shot $pick${shot != null ? ' · ${shot.layout.replaceAll('_', ' ')}' : ''}', style: const TextStyle(fontSize: 11, color: _G.dim)),
+                  Text('${'shot {n}'.trf({'n': pick})}${shot != null ? ' · ${shot.layout.replaceAll('_', ' ')}' : ''}', style: const TextStyle(fontSize: 11, color: _G.dim)),
                   const SizedBox(width: 16),
-                  Text('${tweens.length} animations in this shot', style: const TextStyle(fontSize: 11, color: _G.dim)),
+                  Text('{n} animations in this shot'.trf({'n': tweens.length}), style: const TextStyle(fontSize: 11, color: _G.dim)),
                   const Spacer(),
                   if (widget.selected != null)
-                    InkWell(onTap: () => widget.onSelect(null), child: const Text('Follow the playhead', style: TextStyle(fontSize: 11, color: _G.boundary))),
+                    InkWell(onTap: () => widget.onSelect(null), child: Text('Follow the playhead'.tr, style: const TextStyle(fontSize: 11, color: _G.boundary))),
                 ]),
               ),
             ]),
@@ -2877,7 +2891,7 @@ class _ReelTimeline extends StatelessWidget {
                 onHorizontalDragUpdate: (d) => onSeek((d.localPosition.dx / w * total).clamp(0, total)),
                 child: CustomPaint(size: Size(w, 22), painter: _SecondsRuler(total)),
               )),
-          row('Shots', 28, (w) => Stack(children: [
+          row('Shots'.tr, 28, (w) => Stack(children: [
                 for (var i = 0; i < shots.length; i++)
                   Positioned(
                     left: w * shots[i].start / total,
@@ -2915,8 +2929,8 @@ class _ReelTimeline extends StatelessWidget {
                       ),
                     ),
                 ])),
-          if (targets.length > rows.length) row('+${targets.length - rows.length} more', 16, (w) => const SizedBox()),
-          row('Audio', 24, icon: Icons.graphic_eq_rounded, (w) => Stack(children: [
+          if (targets.length > rows.length) row('+{n} more'.trf({'n': targets.length - rows.length}), 16, (w) => const SizedBox()),
+          row('Audio'.tr, 24, icon: Icons.graphic_eq_rounded, (w) => Stack(children: [
                 for (final a in audio)
                   Positioned(
                     left: w * a.start / total,
@@ -2924,7 +2938,7 @@ class _ReelTimeline extends StatelessWidget {
                     top: a.name == 'music' ? 4 : 13,
                     height: a.name == 'music' ? 8 : 7,
                     child: Tooltip(
-                      message: '${a.name} at ${a.start.toStringAsFixed(2)} s',
+                      message: '{name} at {t} s'.trf({'name': a.name, 't': a.start.toStringAsFixed(2)}),
                       child: Container(decoration: BoxDecoration(color: a.name == 'music' ? const Color(0xFF3B8A6A) : const Color(0xFFB98B3A), borderRadius: BorderRadius.circular(2))),
                     ),
                   ),
@@ -3015,7 +3029,7 @@ class _Pointer extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(color: agent.color, borderRadius: BorderRadius.circular(5)),
-              child: Text(agent.name, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
+              child: Text(agent.name.tr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
             ),
             if (say != null && say!.trim().isNotEmpty)
               AnimatedSwitcher(
@@ -3085,7 +3099,7 @@ String _firstIssue(String why) {
   final part = why.split(RegExp(r';\s*')).first.trim();
   final colon = part.indexOf(':');
   if (colon <= 0 || colon > 24) return part;
-  return 'the ${part.substring(0, colon).replaceAll('_', ' ')}: ${part.substring(colon + 1).trim()}';
+  return 'the {name}: {note}'.trf({'name': part.substring(0, colon).replaceAll('_', ' '), 'note': part.substring(colon + 1).trim()});
 }
 
 String _first(String text, [int max = 160]) {
@@ -3107,47 +3121,47 @@ List<_Msg> _chat(_View v) {
         out.add(_Msg(e.seq, 'owner', 'director', e.text));
       case ('director', 'thought') when d is Map && d['reply'] == true:
         final edits = (d['edits'] as List?)?.length ?? 0;
-        out.add(_Msg(e.seq, 'director', 'owner', '${e.text}${edits > 0 ? ' I’m sending $edits ${edits == 1 ? 'change' : 'changes'} to the designer.' : ''}', model: 'Muse Spark'));
+        out.add(_Msg(e.seq, 'director', 'owner', '${e.text}${edits > 0 ? ' ${'I’m sending {n} {changes} to the designer.'.trf({'n': edits, 'changes': edits == 1 ? 'change'.tr : 'changes'.tr})}' : ''}', model: 'Muse Spark'));
       case ('analyst', 'assets'):
-        out.add(_Msg(e.seq, 'analyst', 'director', 'Done reading the site. ${_first(e.text, 120)} All yours.', model: 'Muse Spark · vision'));
+        out.add(_Msg(e.seq, 'analyst', 'director', 'Done reading the site. {text} All yours.'.trf({'text': _first(e.text, 120)}), model: 'Muse Spark · vision'));
       case ('director', 'thought') when d is Map:
-        out.add(_Msg(e.seq, 'director', 'art', 'Plan\'s ready: ${(d['slides'] as List?)?.length ?? ''} slides, ${d['format'] ?? 'a carousel'}. The idea: “${d['concept'] ?? ''}”.', model: 'Muse Spark'));
+        out.add(_Msg(e.seq, 'director', 'art', 'Plan\'s ready: {n} slides, {format}. The idea: “{concept}”.'.trf({'n': (d['slides'] as List?)?.length ?? '', 'format': d['format'] ?? 'a carousel'.tr, 'concept': d['concept'] ?? ''}), model: 'Muse Spark'));
       case ('art', 'thought'):
-        out.add(_Msg(e.seq, 'art', 'designer', 'Look is set: ${_first(e.text.replaceFirst('Visual system for every slide: ', '').split('. ').first, 110)}.', model: 'Muse Wonder'));
+        out.add(_Msg(e.seq, 'art', 'designer', 'Look is set: {look}.'.trf({'look': _first(e.text.replaceFirst('Visual system for every slide: ', '').split('. ').first, 110)}), model: 'Muse Wonder'));
       case ('analyst', 'status') when e.text.startsWith('SAM 3.1') || e.text.contains(' cut out of photo') || e.text.contains('cut the'):
         out.add(_Msg(e.seq, 'analyst', 'designer', _first(e.text, 150), model: 'SAM 3.1'));
       case ('art', 'status') when e.text.startsWith('Decor kit') || e.text.startsWith('Backdrop'):
-        out.add(_Msg(e.seq, 'art', 'designer', 'Painted a piece for the slides: ${_first(e.text.split(': ').skip(1).join(': '), 100)}', model: 'Muse Image', image: d is Map ? d['url'] as String? : null));
+        out.add(_Msg(e.seq, 'art', 'designer', 'Painted a piece for the slides: {text}'.trf({'text': _first(e.text.split(': ').skip(1).join(': '), 100)}), model: 'Muse Image', image: d is Map ? d['url'] as String? : null));
       case ('art', 'status') when e.text.startsWith('So it doesn'):
-        out.add(_Msg(e.seq, 'art', 'designer', 'Heads up, I switched things so it doesn\'t look like the last brands: ${_first(e.text.split(': ').skip(1).join(': '), 100)}'));
+        out.add(_Msg(e.seq, 'art', 'designer', 'Heads up, I switched things so it doesn\'t look like the last brands: {text}'.trf({'text': _first(e.text.split(': ').skip(1).join(': '), 100)})));
       case ('designer', 'snapshot') when n != null:
-        out.add(_Msg(e.seq, 'designer', 'critic', 'Slide $n is up (${e.text.toLowerCase()}). Mind taking a look?', image: d is Map ? '${d['url']}' : null, model: 'GIMP'));
+        out.add(_Msg(e.seq, 'designer', 'critic', 'Slide {n} is up ({what}). Mind taking a look?'.trf({'n': n, 'what': e.text.toLowerCase()}), image: d is Map ? '${d['url']}' : null, model: 'GIMP'));
       case ('critic', 'review') when n != null:
         final ok = d is Map ? d['approved'] == true : e.text.startsWith('All checks');
         final score = d is Map ? d['score'] : null;
         if (ok) {
-          out.add(_Msg(e.seq, 'critic', 'designer', 'Slide $n looks good${score != null ? ', $score/10' : ''}. Ship it.', tone: _C.ok, model: 'Muse Spark · vision'));
+          out.add(_Msg(e.seq, 'critic', 'designer', 'Slide {n} looks good{score}. Ship it.'.trf({'n': n, 'score': score != null ? ', $score/10' : ''}), tone: _C.ok, model: 'Muse Spark · vision'));
         } else {
           rejected.add(n);
           final arrow = e.text.indexOf('→');
           final why = (arrow > 0 ? e.text.substring(0, arrow) : e.text).replaceFirst(RegExp(r'^Rejected \(\d+/10\)\.\s*'), '');
-          out.add(_Msg(e.seq, 'critic', 'fixer', 'Not yet on slide $n${score != null ? ' ($score/10)' : ''}. ${_first(_firstIssue(why), 130)}', tone: _C.bad, model: 'Muse Spark · vision'));
+          out.add(_Msg(e.seq, 'critic', 'fixer', 'Not yet on slide {n}{score}. {why}'.trf({'n': n, 'score': score != null ? ' ($score/10)' : '', 'why': _first(_firstIssue(why), 130)}), tone: _C.bad, model: 'Muse Spark · vision'));
         }
       case ('fixer', 'thought') when e.agent == 'motion':
-        out.add(_Msg(e.seq, 'fixer', 'designer', 'On it: ${_first(e.text.replaceFirst('Fixing the shots: ', ''), 130)} Can you render it again?', model: 'Muse Spark'));
+        out.add(_Msg(e.seq, 'fixer', 'designer', 'On it: {text} Can you render it again?'.trf({'text': _first(e.text.replaceFirst('Fixing the shots: ', ''), 130)}), model: 'Muse Spark'));
       case ('fixer', 'thought'):
-        out.add(_Msg(e.seq, 'fixer', 'critic', 'On it. ${_first(e.text.split(' Done:').first, 120)} Slide ${n ?? ''} is ready for another look.', model: 'Muse Spark'));
+        out.add(_Msg(e.seq, 'fixer', 'critic', 'On it. {text} Slide {n} is ready for another look.'.trf({'text': _first(e.text.split(' Done:').first, 120), 'n': n ?? ''}), model: 'Muse Spark'));
       case ('critic', 'review') when d is Map && d['reel'] == true && d['shot'] is int:
         final ok = d['approved'] == true;
-        out.add(_Msg(e.seq, 'critic', ok ? 'designer' : 'fixer', ok ? 'Shot ${d['shot']} of the reel works, ${d['score']}/10.' : 'Shot ${d['shot']} needs work (${d['score']}/10). ${_first(_firstIssue(e.text.split(').').skip(1).join(').').trim()), 110)}', tone: ok ? _C.ok : _C.bad));
+        out.add(_Msg(e.seq, 'critic', ok ? 'designer' : 'fixer', ok ? 'Shot {n} of the reel works, {score}/10.'.trf({'n': d['shot'], 'score': d['score']}) : 'Shot {n} needs work ({score}/10). {why}'.trf({'n': d['shot'], 'score': d['score'], 'why': _first(_firstIssue(e.text.split(').').skip(1).join(').').trim()), 110)}), tone: ok ? _C.ok : _C.bad));
       case ('critic', 'review') when n == null:
-        out.add(_Msg(e.seq, 'critic', 'designer', 'Looked at the whole set together: ${_first(e.text.replaceFirst(RegExp(r'^The set( after the fixes)? '), ''), 140)}', tone: _C.violet));
+        out.add(_Msg(e.seq, 'critic', 'designer', 'Looked at the whole set together: {text}'.trf({'text': _first(e.text.replaceFirst(RegExp(r'^The set( after the fixes)? '), ''), 140)}), tone: _C.violet));
       case ('designer', 'thought') when e.agent == 'motion' && d is Map && d['reel'] is Map:
-        out.add(_Msg(e.seq, 'designer', 'critic', 'Reel\'s laid out in HyperFrames, ${((d['reel'] as Map)['shots'] as List?)?.length ?? ''} shots. Rendering it now.', model: 'HyperFrames'));
+        out.add(_Msg(e.seq, 'designer', 'critic', 'Reel\'s laid out in HyperFrames, {n} shots. Rendering it now.'.trf({'n': ((d['reel'] as Map)['shots'] as List?)?.length ?? ''}), model: 'HyperFrames'));
       case (_, 'done'):
         out.add(_Msg(e.seq, 'system', null, _first(e.text, 80), tone: _C.ok));
       case (_, 'error'):
-        out.add(_Msg(e.seq, 'system', null, 'The run stopped: ${_first(e.text, 120)}', tone: _C.bad));
+        out.add(_Msg(e.seq, 'system', null, 'The run stopped: {text}'.trf({'text': _first(e.text, 120)}), tone: _C.bad));
     }
   }
   return out;
@@ -3168,18 +3182,18 @@ class _TeamChat extends StatelessWidget {
   Widget build(BuildContext context) {
     final messages = _chat(view);
     final times = {for (final l in view.lines) l.event.seq: l.event.at};
-    final channel = (view.business ?? 'carousel').toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
+    final channel = (view.business ?? 'carousel'.tr).toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
     final active = busy ? _agent(view.active ?? '') : null;
     final typing = active == null ? null : view.said[active.key]?.event;
     return _Panel(
-      title: '# ${channel.isEmpty ? 'carousel' : channel}',
+      title: '# ${channel.isEmpty ? 'carousel'.tr : channel}',
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
         Container(width: 7, height: 7, decoration: const BoxDecoration(color: _C.ok, shape: BoxShape.circle)),
         const SizedBox(width: 5),
-        Text('${_team.length} online', style: mono(size: 11, color: _C.faint)),
+        Text('{n} online'.trf({'n': _team.length}), style: mono(size: 11, color: _C.faint)),
         const SizedBox(width: 6),
         IconButton(
-          tooltip: wide ? 'Make the chat smaller' : 'Expand the chat',
+          tooltip: wide ? 'Make the chat smaller'.tr : 'Expand the chat'.tr,
           visualDensity: VisualDensity.compact,
           onPressed: onWide,
           icon: Icon(wide ? Icons.close_fullscreen_rounded : Icons.open_in_full_rounded, size: 17, color: _C.muted),
@@ -3195,11 +3209,11 @@ class _TeamChat extends StatelessWidget {
             for (final a in _team)
               Expanded(
                 child: Tooltip(
-                  message: '${a.name}: ${a.job}\n${a.models.join(' · ')}',
+                  message: '${a.name.tr}: ${a.job.tr}\n${a.models.join(' · ')}',
                   child: Column(children: [
                     _Avatar(agent: a, working: active?.key == a.key, idle: (view.talks[a.key] ?? 0) == 0, size: 30),
                     const SizedBox(height: 4),
-                    Text(a.name.split(' ').first, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: active?.key == a.key ? FontWeight.w800 : FontWeight.w600, color: active?.key == a.key ? a.color : _C.muted)),
+                    Text(a.name.split(' ').first.tr, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: active?.key == a.key ? FontWeight.w800 : FontWeight.w600, color: active?.key == a.key ? a.color : _C.muted)),
                     // What each agent works with: Meta's models, GIMP or HyperFrames.
                     for (final m in a.models)
                       Text(m, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: mono(size: 8.5, color: m.startsWith('Muse') || m.startsWith('SAM') ? const Color(0xFF0866FF) : _C.faint, weight: FontWeight.w700)),
@@ -3210,10 +3224,10 @@ class _TeamChat extends StatelessWidget {
         ),
         Expanded(
           child: messages.isEmpty && typing == null
-              ? const Center(
+              ? Center(
                   child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 28),
-                    child: Text('The team starts talking as soon as the analyst opens the website.', textAlign: TextAlign.center, style: TextStyle(color: _C.faint, height: 1.45)),
+                    padding: const EdgeInsets.symmetric(horizontal: 28),
+                    child: Text('The team starts talking as soon as the analyst opens the website.'.tr, textAlign: TextAlign.center, style: const TextStyle(color: _C.faint, height: 1.45)),
                   ),
                 )
               : ListView.builder(
@@ -3246,8 +3260,8 @@ class _TeamChat extends StatelessWidget {
                     const SizedBox(width: 6),
                     Text.rich(
                       TextSpan(children: [
-                        TextSpan(text: active.name, style: const TextStyle(fontWeight: FontWeight.w800)),
-                        const TextSpan(text: ' is typing…'),
+                        TextSpan(text: active.name.tr, style: const TextStyle(fontWeight: FontWeight.w800)),
+                        TextSpan(text: ' is typing…'.tr),
                       ]),
                       style: const TextStyle(fontSize: 12, color: _C.muted),
                     ),
@@ -3298,14 +3312,14 @@ class _ChatLine extends StatelessWidget {
       );
     }
     final to = msg.to == null ? null : _agent(msg.to!);
-    final name = owner ? 'You' : from!.name;
+    final name = owner ? 'You'.tr : from!.name.tr;
     final color = owner ? _C.violet : from!.color;
-    final mention = to?.name ?? (msg.to == 'owner' ? 'You' : null);
+    final mention = to?.name.tr ?? (msg.to == 'owner' ? 'You'.tr : null);
     final avatar = Container(
       width: 36,
       height: 36,
       decoration: BoxDecoration(color: color.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(8)),
-      child: owner ? const Center(child: Text('Y', style: TextStyle(fontWeight: FontWeight.w800, color: _C.violet))) : Icon(from!.icon, size: 20, color: color),
+      child: owner ? Center(child: Text('You'.tr.substring(0, 1), style: const TextStyle(fontWeight: FontWeight.w800, color: _C.violet))) : Icon(from!.icon, size: 20, color: color),
     );
     return Padding(
       padding: EdgeInsets.only(top: grouped ? 2 : 10, bottom: 2),
@@ -3438,8 +3452,8 @@ class _SafeAreas extends StatelessWidget {
         const shade = Color(0x66000000);
         Widget label(String text) => Text(text, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white));
         return Stack(children: [
-          Positioned(left: 0, right: 0, top: 0, height: h * y1, child: Container(color: shade, alignment: Alignment.center, child: label('Instagram top bar'))),
-          Positioned(left: 0, right: 0, top: h * y2, bottom: 0, child: Container(color: shade, alignment: Alignment.center, child: label('Caption, music and buttons'))),
+          Positioned(left: 0, right: 0, top: 0, height: h * y1, child: Container(color: shade, alignment: Alignment.center, child: label('Instagram top bar'.tr))),
+          Positioned(left: 0, right: 0, top: h * y2, bottom: 0, child: Container(color: shade, alignment: Alignment.center, child: label('Caption, music and buttons'.tr))),
           Positioned(left: 0, width: w * x1, top: h * y1, height: h * (y2 - y1), child: const ColoredBox(color: shade)),
           Positioned(left: w * x2, right: 0, top: h * y1, height: h * (y2 - y1), child: const ColoredBox(color: shade)),
           Positioned(left: w * x1, top: h * y1, width: w * (x2 - x1), height: h * (y2 - y1), child: CustomPaint(painter: _Dashed())),
@@ -3483,7 +3497,7 @@ class _DialogHeader extends StatelessWidget {
               ],
             ]),
           ),
-          if (onClose != null) IconButton(tooltip: 'Close', onPressed: onClose, icon: const Icon(Icons.close_rounded, color: _C.muted)),
+          if (onClose != null) IconButton(tooltip: 'Close'.tr, onPressed: onClose, icon: const Icon(Icons.close_rounded, color: _C.muted)),
         ]),
       );
 }
@@ -3505,17 +3519,17 @@ Future<String?> _pickPhotoDialog(BuildContext context, {required int slide, requ
         constraints: BoxConstraints(maxWidth: 860, maxHeight: size.height * 0.86),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _DialogHeader(
-            kicker: 'SLIDE ${slide.toString().padLeft(2, '0')}',
-            title: 'Choose its photo',
-            text: '${choices.length} ${choices.length == 1 ? 'image' : 'images'} from ${host.isEmpty ? 'the website' : host}. The designer rebuilds the slide with the one you pick.',
+            kicker: 'Slide {n}'.trf({'n': slide.toString().padLeft(2, '0')}).toUpperCase(),
+            title: 'Choose its photo'.tr,
+            text: '{n} {images} from {host}. The designer rebuilds the slide with the one you pick.'.trf({'n': choices.length, 'images': choices.length == 1 ? 'image'.tr : 'images'.tr, 'host': host.isEmpty ? 'the website'.tr : host}),
             onClose: () => Navigator.pop(context),
           ),
           const Divider(height: 1, color: _C.line),
           Flexible(
             child: choices.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(40),
-                    child: Text('The analyst found no photos on the website.', textAlign: TextAlign.center, style: TextStyle(color: _C.faint)),
+                ? Padding(
+                    padding: const EdgeInsets.all(40),
+                    child: Text('The analyst found no photos on the website.'.tr, textAlign: TextAlign.center, style: const TextStyle(color: _C.faint)),
                   )
                 : GridView.builder(
                     shrinkWrap: true,
@@ -3583,7 +3597,7 @@ class _PickTileState extends State<_PickTile> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                   decoration: BoxDecoration(color: on ? _C.violet : Colors.white.withValues(alpha: 0.92), borderRadius: BorderRadius.circular(999), border: on ? null : Border.all(color: _C.line)),
-                  child: Text(on ? 'On the slide' : (p.cutout ? 'Cut out' : (hover ? 'Use this one' : 'Photo')),
+                  child: Text(on ? 'On the slide'.tr : (p.cutout ? 'Cut out'.tr : (hover ? 'Use this one'.tr : 'Photo'.tr)),
                       style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: on ? Colors.white : _C.text)),
                 ),
               ),
@@ -3603,7 +3617,7 @@ class _PhotoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Tooltip(
-        message: '${photo.id}${photo.cutout ? ' · cut out' : ''}${photo.note.isNotEmpty ? ' · ${photo.note}' : ''}',
+        message: '${photo.id}${photo.cutout ? ' · ${'cut out'.tr}' : ''}${photo.note.isNotEmpty ? ' · ${photo.note}' : ''}',
         child: InkWell(
           onTap: onTap,
           child: Container(
@@ -3621,7 +3635,7 @@ class _PhotoTile extends StatelessWidget {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                   decoration: BoxDecoration(color: current ? _G.boundary : Colors.black54, borderRadius: BorderRadius.circular(3)),
-                  child: Text(current ? 'in use' : photo.id, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: current ? Colors.black : Colors.white)),
+                  child: Text(current ? 'in use'.tr : photo.id, style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: current ? Colors.black : Colors.white)),
                 ),
               ),
             ]),
@@ -3689,7 +3703,7 @@ class _DirectorBoxState extends State<_DirectorBox> {
             decoration: InputDecoration(
               isDense: true,
               border: InputBorder.none,
-              hintText: widget.enabled ? 'Message the director…' : (widget.busy ? 'The team is working; you can write when it\'s done.' : 'You can write to the director once the carousel is ready.'),
+              hintText: widget.enabled ? 'Message the director…'.tr : (widget.busy ? 'The team is working; you can write when it\'s done.'.tr : 'You can write to the director once the carousel is ready.'.tr),
               hintStyle: const TextStyle(color: _C.faint, fontSize: 12.5),
               errorText: error,
               errorMaxLines: 2,
@@ -3697,7 +3711,7 @@ class _DirectorBoxState extends State<_DirectorBox> {
           ),
         ),
         IconButton(
-          tooltip: 'Send to the director',
+          tooltip: 'Send to the director'.tr,
           onPressed: widget.enabled && !sending ? send : null,
           icon: sending ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(Icons.send_rounded, color: widget.enabled ? _C.violet : _C.faint),
         ),
@@ -3756,8 +3770,8 @@ class _FeedPreviewState extends State<_FeedPreview> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(handle.isEmpty ? 'your_business' : handle, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
-                    const Text('Sponsored', style: TextStyle(fontSize: 11, color: _C.faint)),
+                    Text(handle.isEmpty ? 'your_business'.tr : handle, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13.5)),
+                    Text('Sponsored'.tr, style: const TextStyle(fontSize: 11, color: _C.faint)),
                   ]),
                 ),
                 const Icon(Icons.more_horiz_rounded, color: _C.muted),
@@ -3766,7 +3780,7 @@ class _FeedPreviewState extends State<_FeedPreview> {
             AspectRatio(
               aspectRatio: 4 / 5,
               child: slides.isEmpty
-                  ? const ColoredBox(color: _C.raised, child: Center(child: Text('The slides show here as the designer saves them.', style: TextStyle(color: _C.faint))))
+                  ? ColoredBox(color: _C.raised, child: Center(child: Text('The slides show here as the designer saves them.'.tr, style: const TextStyle(color: _C.faint))))
                   : Stack(children: [
                       PageView(
                         controller: pages,
@@ -3822,8 +3836,8 @@ class _FeedPreviewState extends State<_FeedPreview> {
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 14),
               child: Text.rich(
                 TextSpan(children: [
-                  TextSpan(text: '${handle.isEmpty ? 'your_business' : handle} ', style: const TextStyle(fontWeight: FontWeight.w800)),
-                  TextSpan(text: v.caption ?? 'The caption shows here when the carousel is ready.'),
+                  TextSpan(text: '${handle.isEmpty ? 'your_business'.tr : handle} ', style: const TextStyle(fontWeight: FontWeight.w800)),
+                  TextSpan(text: v.caption ?? 'The caption shows here when the carousel is ready.'.tr),
                   if (v.hashtags.isNotEmpty) TextSpan(text: '\n${v.hashtags.join(' ')}', style: const TextStyle(color: Color(0xFF00376B))),
                 ]),
                 style: const TextStyle(fontSize: 13, height: 1.4, color: _C.text),
@@ -3969,7 +3983,7 @@ class _PlanBoardState extends State<_PlanBoard> {
     final photoUrl = {for (final p in [...photos, ...choices]) p.id: p};
     final inUse = {for (final sl in slides) if (!removed.contains(sl['n'])) photoOf(sl)};
     return _Panel(
-      title: 'The director\'s plan',
+      title: 'The director\'s plan'.tr,
       trailing: Text('${plan['format'] ?? ''}'.toUpperCase(), style: mono(size: 11, color: _colorOf('director'), weight: FontWeight.w700)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Expanded(
@@ -3980,9 +3994,9 @@ class _PlanBoardState extends State<_PlanBoard> {
             const SizedBox(height: 16),
             // Every photo from the website, and the ones the plan uses.
             Row(children: [
-              const Text('Photos from the website', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+              Text('Photos from the website'.tr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
               const SizedBox(width: 8),
-              Text('${inUse.where((id) => id.isNotEmpty).length} used · ${photos.length} found', style: mono(size: 11, color: _C.faint)),
+              Text('{used} used · {found} found'.trf({'used': inUse.where((id) => id.isNotEmpty).length, 'found': photos.length}), style: mono(size: 11, color: _C.faint)),
             ]),
             const SizedBox(height: 8),
             SizedBox(
@@ -4013,7 +4027,7 @@ class _PlanBoardState extends State<_PlanBoard> {
               ]),
             ),
             const SizedBox(height: 18),
-            Text('${slides.length - removed.length} slides', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+            Text('{n} slides'.trf({'n': slides.length - removed.length}), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
             const SizedBox(height: 8),
             Wrap(spacing: 12, runSpacing: 12, children: [
               for (final sl in slides)
@@ -4036,7 +4050,7 @@ class _PlanBoardState extends State<_PlanBoard> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             decoration: BoxDecoration(color: _C.violet.withValues(alpha: 0.06), border: const Border(top: BorderSide(color: _C.line))),
             child: Row(children: [
-              _Pill(text: 'Design starts in ${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}', color: _C.violet, blink: true),
+              _Pill(text: 'Design starts in {time}'.trf({'time': '${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}'}), color: _C.violet, blink: true),
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
@@ -4044,7 +4058,7 @@ class _PlanBoardState extends State<_PlanBoard> {
                   style: const TextStyle(fontSize: 13),
                   decoration: InputDecoration(
                     isDense: true,
-                    hintText: 'Change the words, the photos or the slides above. Anything else for the director?',
+                    hintText: 'Change the words, the photos or the slides above. Anything else for the director?'.tr,
                     hintStyle: const TextStyle(fontSize: 12.5, color: _C.faint),
                     border: const OutlineInputBorder(),
                     errorText: error,
@@ -4052,7 +4066,7 @@ class _PlanBoardState extends State<_PlanBoard> {
                 ),
               ),
               const SizedBox(width: 12),
-              FilledButton.icon(onPressed: approve, icon: const Icon(Icons.check_rounded), label: const Text('Approve the plan')),
+              FilledButton.icon(onPressed: approve, icon: const Icon(Icons.check_rounded), label: Text('Approve the plan'.tr)),
             ]),
           ),
       ]),
@@ -4097,7 +4111,7 @@ class _PlanCard extends StatelessWidget {
                 maxLines: null,
                 onChanged: (v) => onEdit(key, v),
                 style: TextStyle(fontSize: size, fontWeight: weight, height: 1.3),
-                decoration: InputDecoration(isDense: true, labelText: label, labelStyle: const TextStyle(fontSize: 11), border: const OutlineInputBorder()),
+                decoration: InputDecoration(isDense: true, labelText: label.tr, labelStyle: const TextStyle(fontSize: 11), border: const OutlineInputBorder()),
               )
             : Text(value, style: TextStyle(fontSize: size, fontWeight: weight, height: 1.3, color: key == 'headline' ? _C.text : _C.muted)),
       );
@@ -4116,7 +4130,7 @@ class _PlanCard extends StatelessWidget {
             if (editable && (canRemove || removed))
               InkWell(
                 onTap: onRemove,
-                child: Text(removed ? 'Bring back' : 'Remove', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _C.bad)),
+                child: Text(removed ? 'Bring back'.tr : 'Remove'.tr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: _C.bad)),
               ),
           ]),
           const SizedBox(height: 8),
@@ -4131,13 +4145,13 @@ class _PlanCard extends StatelessWidget {
                   if (photo != null)
                     _Net(photo!.url, fit: photo!.cutout ? BoxFit.contain : BoxFit.cover)
                   else
-                    const Center(child: Text('No photo: words only', style: TextStyle(fontSize: 11.5, color: _C.faint))),
+                    Center(child: Text('No photo: words only'.tr, style: const TextStyle(fontSize: 11.5, color: _C.faint))),
                   if (leftOut)
                     Container(
                       color: Colors.white.withValues(alpha: 0.75),
                       alignment: Alignment.center,
                       padding: const EdgeInsets.all(12),
-                      child: const Text('Left out: gets another photo when you approve', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _C.bad)),
+                      child: Text('Left out: gets another photo when you approve'.tr, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _C.bad)),
                     ),
                   if (editable)
                     Positioned(
@@ -4146,10 +4160,10 @@ class _PlanCard extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                         decoration: BoxDecoration(color: Colors.black.withValues(alpha: 0.65), borderRadius: BorderRadius.circular(5)),
-                        child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.swap_horiz_rounded, size: 13, color: Colors.white),
-                          SizedBox(width: 4),
-                          Text('Change photo', style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700)),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          const Icon(Icons.swap_horiz_rounded, size: 13, color: Colors.white),
+                          const SizedBox(width: 4),
+                          Text('Change photo'.tr, style: const TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700)),
                         ]),
                       ),
                     ),
@@ -4175,7 +4189,7 @@ void showAsset(BuildContext context, Map asset, bool leftOut, VoidCallback? onTo
       var out = leftOut;
       return AlertDialog(
         titlePadding: EdgeInsets.zero,
-        title: _DialogHeader(kicker: 'FROM THE WEBSITE', title: 'An image the analyst found', onClose: () => Navigator.pop(context)),
+        title: _DialogHeader(kicker: 'FROM THE WEBSITE'.tr, title: 'An image the analyst found'.tr, onClose: () => Navigator.pop(context)),
         contentPadding: const EdgeInsets.fromLTRB(24, 4, 24, 24),
         content: SizedBox(
           width: 760,
@@ -4195,18 +4209,18 @@ void showAsset(BuildContext context, Map asset, bool leftOut, VoidCallback? onTo
                 Row(children: [
                   _Avatar(agent: _agent('analyst')!, working: false, idle: false, size: 24),
                   const SizedBox(width: 8),
-                  const Text('What the analyst read', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
+                  Text('What the analyst read'.tr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
                 ]),
                 const SizedBox(height: 4),
                 Text('Muse Spark · vision', style: mono(size: 10, color: const Color(0xFF0866FF), weight: FontWeight.w700)),
                 const SizedBox(height: 12),
                 Wrap(spacing: 6, runSpacing: 6, children: [
-                  _Pill(text: '${asset['kind'] ?? 'image'}', color: _C.violet),
-                  if (asset['hasText'] == true) const _Pill(text: 'text baked in', color: _C.warn),
-                  if (asset['quality'] is num) _Pill(text: 'quality ${asset['quality']}', color: _C.muted),
+                  _Pill(text: '${asset['kind'] ?? 'image'.tr}', color: _C.violet),
+                  if (asset['hasText'] == true) _Pill(text: 'text baked in'.tr, color: _C.warn),
+                  if (asset['quality'] is num) _Pill(text: 'quality {n}'.trf({'n': asset['quality']}), color: _C.muted),
                 ]),
                 const SizedBox(height: 10),
-                Text('${asset['description'] ?? ''}'.isEmpty ? 'No description.' : '${asset['description']}', style: const TextStyle(fontSize: 13.5, height: 1.45)),
+                Text('${asset['description'] ?? ''}'.isEmpty ? 'No description.'.tr : '${asset['description']}', style: const TextStyle(fontSize: 13.5, height: 1.45)),
                 const SizedBox(height: 18),
                 if (onToggle != null)
                   SizedBox(
@@ -4219,7 +4233,7 @@ void showAsset(BuildContext context, Map asset, bool leftOut, VoidCallback? onTo
                               Navigator.pop(context);
                             },
                             icon: const Icon(Icons.check_rounded),
-                            label: const Text('Use it on the slides'),
+                            label: Text('Use it on the slides'.tr),
                           )
                         : OutlinedButton.icon(
                             onPressed: () {
@@ -4228,13 +4242,13 @@ void showAsset(BuildContext context, Map asset, bool leftOut, VoidCallback? onTo
                               Navigator.pop(context);
                             },
                             icon: const Icon(Icons.block_rounded, color: _C.bad),
-                            label: const Text('Leave it out'),
+                            label: Text('Leave it out'.tr),
                           ),
                   ),
                 if (onToggle != null)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 8),
-                    child: Text('Your pick goes to the director when you confirm.', style: TextStyle(fontSize: 11.5, color: _C.faint)),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text('Your pick goes to the director when you confirm.'.tr, style: const TextStyle(fontSize: 11.5, color: _C.faint)),
                   ),
               ]),
             ),

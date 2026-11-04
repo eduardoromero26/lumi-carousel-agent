@@ -1,4 +1,4 @@
-# postcrew
+# Lumi · carousel agent
 
 **A crew of agents on Meta's models that turns a business website into an on-brand Instagram/Facebook carousel, designed layer by layer in GIMP and checked by its own critic.**
 
@@ -101,4 +101,6 @@ The tests cover the code that decides, without calling the model API or GIMP: th
 
 ## Built during the Meta Global AI Developer Hackathon 2026
 
-Licensed under the [MIT License](LICENSE).
+Open source under the [MIT License](LICENSE). The Lumi name, logo and mascot are the brand of the product and are not covered by the license.
+
+Made by Eduardo Romero at [Kodemex](https://kodemex.com.mx): web, apps and paid ads for businesses. Need something like this for your company? [kodemex.com.mx](https://kodemex.com.mx)

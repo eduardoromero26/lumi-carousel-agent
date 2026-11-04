@@ -184,7 +184,35 @@ class _HomeShellState extends State<HomeShell> {
               RoomPage(embedded: true, active: tab == 3, onExit: () => setState(() => tab = 0)),
             ]),
           ),
+          if (tab != 3) const _PoweredBy(),
         ]),
+      ),
+    );
+  }
+}
+
+const kodemexUrl = 'https://kodemex.com.mx';
+
+class _PoweredBy extends StatelessWidget {
+  const _PoweredBy();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 36,
+      decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Palette.divider))),
+      alignment: Alignment.center,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: () => web.window.open(kodemexUrl, '_blank'),
+          child: Text.rich(
+            TextSpan(style: const TextStyle(fontSize: 12.5, color: Palette.faint), children: [
+              const TextSpan(text: 'Open source · Powered by '),
+              TextSpan(text: 'Kodemex', style: const TextStyle(fontWeight: FontWeight.w700, color: Palette.primary)),
+            ]),
+          ),
+        ),
       ),
     );
   }

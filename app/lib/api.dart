@@ -17,9 +17,16 @@ class RunEvent {
         agent = j['agent'] as String,
         text = j['text'] as String,
         slide = j['slide'] as int?,
+        at = DateTime.tryParse(j['at'] as String? ?? ''),
+        cost = (j['cost'] as num?)?.toDouble(),
+        tokens = (j['tokens'] as num?)?.toInt(),
         data = j['data'];
 
   final int seq;
+  final DateTime? at;
+  // What the run had spent when this happened.
+  final double? cost;
+  final int? tokens;
   final String type;
   final String agent;
   final String text;
@@ -71,6 +78,42 @@ class Api {
       Uri.parse('$apiUrl/api/runs/$runId/slides/$n/edit'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'feedback': feedback}),
+    );
+    if (res.statusCode != 202) {
+      throw Exception((jsonDecode(res.body) as Map<String, dynamic>)['error'] ?? 'Error ${res.statusCode}');
+    }
+  }
+
+  // The website images the owner leaves out, while the analyst waits for them.
+  static Future<void> pickImages(String runId, List<String> exclude) async {
+    final res = await http.post(
+      Uri.parse('$apiUrl/api/runs/$runId/images'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'exclude': exclude}),
+    );
+    if (res.statusCode != 202) {
+      throw Exception((jsonDecode(res.body) as Map<String, dynamic>)['error'] ?? 'Error ${res.statusCode}');
+    }
+  }
+
+  // The owner's changes to the director's plan, while it waits before the design.
+  static Future<void> reviewPlan(String runId, List<Map<String, dynamic>> slides, String note, {List<String> exclude = const []}) async {
+    final res = await http.post(
+      Uri.parse('$apiUrl/api/runs/$runId/plan'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'slides': slides, if (note.isNotEmpty) 'note': note, if (exclude.isNotEmpty) 'exclude': exclude}),
+    );
+    if (res.statusCode != 202) {
+      throw Exception((jsonDecode(res.body) as Map<String, dynamic>)['error'] ?? 'Error ${res.statusCode}');
+    }
+  }
+
+  // The owner writes to the director in the team chat.
+  static Future<void> chat(String runId, String text) async {
+    final res = await http.post(
+      Uri.parse('$apiUrl/api/runs/$runId/chat'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'text': text}),
     );
     if (res.statusCode != 202) {
       throw Exception((jsonDecode(res.body) as Map<String, dynamic>)['error'] ?? 'Error ${res.statusCode}');

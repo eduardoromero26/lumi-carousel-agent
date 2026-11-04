@@ -87,7 +87,7 @@ class StyleGallery extends StatelessWidget {
               badge: s['source'] == 'carousel' ? 'Ours' : null,
               tooltip: (s['style'] as Map?)?['notes'] as String?,
               onDelete: () => onDelete(s['id'] as String),
-              child: Image.network(Api.fileUrl(s['url'] as String), fit: BoxFit.cover),
+              child: _Thumb(url: Api.fileUrl(s['url'] as String)),
             ),
         ],
       ),
@@ -161,5 +161,54 @@ class _Tile extends StatelessWidget {
       ]),
     );
     return tooltip == null || tooltip!.isEmpty ? tile : Tooltip(message: tooltip!, waitDuration: const Duration(milliseconds: 500), child: tile);
+  }
+}
+
+
+// A style's picture: a pulsing placeholder while it loads, a retry if it fails (the
+// server restarting, say), and decoded small so 60 of them load fast.
+class _Thumb extends StatefulWidget {
+  const _Thumb({required this.url});
+  final String url;
+
+  @override
+  State<_Thumb> createState() => _ThumbState();
+}
+
+class _ThumbState extends State<_Thumb> {
+  int attempt = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.network(
+      attempt == 0 ? widget.url : '${widget.url}?retry=$attempt',
+      key: ValueKey(attempt),
+      fit: BoxFit.cover,
+      cacheWidth: 420,
+      gaplessPlayback: true,
+      loadingBuilder: (context, child, progress) => progress == null
+          ? child
+          : Container(
+              color: Palette.ground,
+              alignment: Alignment.center,
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  value: progress.expectedTotalBytes == null ? null : progress.cumulativeBytesLoaded / progress.expectedTotalBytes!,
+                ),
+              ),
+            ),
+      errorBuilder: (context, _, _) => Container(
+        color: Palette.ground,
+        alignment: Alignment.center,
+        child: TextButton.icon(
+          onPressed: () => setState(() => attempt++),
+          icon: const Icon(Icons.refresh_rounded, size: 18),
+          label: const Text('Retry'),
+        ),
+      ),
+    );
   }
 }

@@ -3,7 +3,8 @@ import 'dart:ui_web' as ui_web;
 import 'package:web/web.dart' as web;
 
 import 'api.dart';
-import 'main.dart' show showBig;
+import 'main.dart' show showBig, showImages;
+import 'room.dart' show openEditView;
 
 // Every carousel the agents made, shown as it would look on Facebook and Instagram:
 // the feed with each post, the profile grid and the reels, plus the research
@@ -26,7 +27,8 @@ const _link = Color(0xFF00376B);
 class _FeedPageState extends State<FeedPage> {
   List<Map<String, dynamic>>? posts;
   String? error;
-  _View view = _View.feed;
+  // Grid and reels only: the post-by-post feed left the menu.
+  _View view = _View.grid;
 
   @override
   void initState() {
@@ -58,7 +60,7 @@ class _FeedPageState extends State<FeedPage> {
   Widget build(BuildContext context) {
     final list = posts;
     final reels = list?.where((p) => p['reel'] != null).toList() ?? const [];
-    final shown = reels.isEmpty && view == _View.reels ? _View.feed : view;
+    final shown = reels.isEmpty && view == _View.reels ? _View.grid : view;
     return ColoredBox(
       color: _ground,
       child: Column(children: [
@@ -75,7 +77,6 @@ class _FeedPageState extends State<FeedPage> {
               showSelectedIcon: false,
               // The server sends no reels while they are off.
               segments: [
-                const ButtonSegment(value: _View.feed, icon: Icon(Icons.view_agenda_outlined, size: 18), label: Text('Feed', softWrap: false)),
                 const ButtonSegment(value: _View.grid, icon: Icon(Icons.grid_on, size: 18), label: Text('Grid', softWrap: false)),
                 if (reels.isNotEmpty)
                   const ButtonSegment(value: _View.reels, icon: Icon(Icons.movie_outlined, size: 18), label: Text('Reels', softWrap: false)),
@@ -84,8 +85,6 @@ class _FeedPageState extends State<FeedPage> {
               onSelectionChanged: (v) => setState(() => view = v.first),
             ),
             const SizedBox(width: 8),
-            TextButton.icon(onPressed: () => showTaste(context), icon: const Icon(Icons.insights, size: 18), label: const Text('Your taste')),
-            IconButton(tooltip: 'Refresh', onPressed: load, icon: const Icon(Icons.refresh)),
           ]),
         ),
         const Divider(height: 1),
@@ -224,10 +223,11 @@ class _PostCardState extends State<PostCard> {
                 ]),
               ]),
             ),
+            // The carousel in the agents' studio: the edit view with GIMP, the team and the reel.
             TextButton.icon(
-              onPressed: () => showResearch(context, p),
-              icon: const Icon(Icons.travel_explore, size: 18),
-              label: const Text('Research'),
+              onPressed: () => openEditView('${p['id']}'),
+              icon: const Icon(Icons.layers_outlined, size: 18),
+              label: const Text('Agent Studio'),
             ),
           ]),
         ),
@@ -250,7 +250,7 @@ class _PostCardState extends State<PostCard> {
                 itemCount: slides.length,
                 onPageChanged: (i) => setState(() => page = i),
                 itemBuilder: (_, i) => GestureDetector(
-                  onTap: () => showBig(context, NetworkImage(Api.fileUrl(slides[i]['url'] as String)), caption: '${p['business']} · ${i + 1}/${slides.length}'),
+                  onTap: () => showImages(context, [for (final s in slides) (image: NetworkImage(Api.fileUrl(s['url'] as String)), caption: '${p['business']}')], i),
                   child: Image.network(Api.fileUrl(slides[i]['url'] as String), fit: BoxFit.cover),
                 ),
               ),
@@ -267,11 +267,6 @@ class _PostCardState extends State<PostCard> {
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
           child: Row(children: [
-            _Thumbs(
-              label: reel ? 'Reel' : 'Slide ${page + 1}',
-              value: votes[reel ? 'reel' : 'slide:${page + 1}'],
-              onVote: (v) => vote(reel ? 'reel' : 'slide:${page + 1}', v),
-            ),
             const Spacer(),
             if (!reel)
               Row(children: [
@@ -334,11 +329,6 @@ class _PostCardState extends State<PostCard> {
                 style: const TextStyle(color: _muted, fontSize: 12),
               ),
             ),
-            _Stars(value: stars, onRate: rate),
-            TextButton(
-              onPressed: () => web.window.location.href = '/?run=${p['id']}',
-              child: const Text("See the agents' work"),
-            ),
           ]),
         ),
       ]),
@@ -346,32 +336,6 @@ class _PostCardState extends State<PostCard> {
   }
 }
 
-// The whole carousel from 1 to 5: 4-5 count as a like, 1-2 as a dislike.
-class _Stars extends StatelessWidget {
-  const _Stars({required this.value, required this.onRate});
-  final int? value;
-  final ValueChanged<int> onRate;
-
-  @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-        for (var i = 1; i <= 5; i++)
-          InkResponse(
-            onTap: () => onRate(i),
-            radius: 16,
-            child: Tooltip(
-              message: '$i of 5',
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 6),
-                child: Icon(
-                  (value ?? 0) >= i ? Icons.star_rounded : Icons.star_outline_rounded,
-                  size: 22,
-                  color: (value ?? 0) >= i ? const Color(0xFFF5A524) : const Color(0xFFC7C7C7),
-                ),
-              ),
-            ),
-          ),
-      ]);
-}
 
 // Null when the owner cancels the dislike; an empty note still counts as a dislike.
 Future<String?> _askWhatsWrong(BuildContext context, String target, {int? stars}) {
@@ -516,30 +480,6 @@ class _TasteRow extends StatelessWidget {
   }
 }
 
-// The owner's like or dislike: the votes the agents learn the owner's taste from.
-class _Thumbs extends StatelessWidget {
-  const _Thumbs({required this.label, required this.value, required this.onVote});
-  final String label;
-  final int? value;
-  final ValueChanged<int> onVote;
-
-  @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-        Padding(padding: const EdgeInsets.only(left: 8), child: Text(label, style: const TextStyle(color: _muted, fontSize: 12))),
-        IconButton(
-          tooltip: 'I like it',
-          visualDensity: VisualDensity.compact,
-          onPressed: () => onVote(1),
-          icon: Icon(value == 1 ? Icons.thumb_up : Icons.thumb_up_outlined, size: 20, color: value == 1 ? const Color(0xFF0095F6) : null),
-        ),
-        IconButton(
-          tooltip: "I don't like it",
-          visualDensity: VisualDensity.compact,
-          onPressed: () => onVote(-1),
-          icon: Icon(value == -1 ? Icons.thumb_down : Icons.thumb_down_outlined, size: 20, color: value == -1 ? const Color(0xFFED4956) : null),
-        ),
-      ]);
-}
 
 // The business logo in the round avatar, on its own background color.
 class BusinessAvatar extends StatelessWidget {

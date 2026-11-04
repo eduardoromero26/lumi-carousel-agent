@@ -1,6 +1,6 @@
 {
-    "name": "carousel_agent",
-    "short_name": "carousel_agent",
+    "name": "Lumi",
+    "short_name": "Lumi",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

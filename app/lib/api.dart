@@ -84,18 +84,6 @@ class Api {
     }
   }
 
-  // The website images the owner leaves out, while the analyst waits for them.
-  static Future<void> pickImages(String runId, {List<String> include = const [], List<String> exclude = const []}) async {
-    final res = await http.post(
-      Uri.parse('$apiUrl/api/runs/$runId/images'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'include': include, 'exclude': exclude}),
-    );
-    if (res.statusCode != 202) {
-      throw Exception((jsonDecode(res.body) as Map<String, dynamic>)['error'] ?? 'Error ${res.statusCode}');
-    }
-  }
-
   // The owner's changes to the director's plan, while it waits before the design.
   static Future<void> reviewPlan(String runId, List<Map<String, dynamic>> slides, String note, {List<String> exclude = const []}) async {
     final res = await http.post(

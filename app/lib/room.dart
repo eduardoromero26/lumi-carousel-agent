@@ -144,9 +144,6 @@ class _View {
       // The plan waits for the owner until this time; done once the owner or the clock answers.
       final wait = data is Map ? data['planWait'] : null;
       if (wait is Map) planUntil = wait['until'] is num ? DateTime.fromMillisecondsSinceEpoch((wait['until'] as num).toInt()) : null;
-      final pick = data is Map ? data['pickWait'] : null;
-      if (pick is Map) pickUntil = pick['until'] is num ? DateTime.fromMillisecondsSinceEpoch((pick['until'] as num).toInt()) : null;
-      if (role == 'director') pickUntil = null;
       if (e.cost != null) cost = e.cost;
       if (e.tokens != null) tokens = e.tokens!;
       if (role == 'art') planUntil = null;
@@ -266,7 +263,6 @@ class _View {
   String? caption;
   List<String> hashtags = const [];
   DateTime? planUntil;
-  DateTime? pickUntil;
   int tokens = 0;
 
   _Slide slide(int n) => slides.putIfAbsent(n, () => _Slide(n));
@@ -640,9 +636,6 @@ class _RoomState extends State<_Room> {
   bool chatWide = false;
   // Website images (asset ids) the owner left out; they go with the plan's approval.
   final excluded = <String>{};
-  // The website images the owner picked in the analyst's step.
-  final chosen = <String>{};
-  bool imagesSent = false;
   void toggleAsset(String id) => setState(() => excluded.contains(id) ? excluded.remove(id) : excluded.add(id));
   // GIMP, the feed preview or the reel; null follows the run (the reel once it starts).
   String? stageTab;
@@ -809,18 +802,6 @@ class _RoomState extends State<_Room> {
       work = _Reading(
         view: v,
         host: (Uri.tryParse('${widget.info?['url'] ?? v.url ?? ''}')?.host ?? '').replaceFirst(RegExp(r'^www\.'), ''),
-        chosen: chosen,
-        onChoose: (id) => setState(() => chosen.contains(id) ? chosen.remove(id) : chosen.add(id)),
-        onConfirm: liveNow && v.pickUntil != null && v.pickUntil!.isAfter(DateTime.now()) && !imagesSent
-            ? () async {
-                try {
-                  await Api.pickImages(widget.runId, include: chosen.toList());
-                  setState(() => imagesSent = true);
-                } catch (e) {
-                  if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
-                }
-              }
-            : null,
       );
     } else if (!v.building || slide == null) {
       work = _PlanBoard(runId: widget.runId, view: v, live: liveNow, excluded: excluded, onToggle: toggleAsset);
@@ -1130,16 +1111,12 @@ class _Avatar extends StatelessWidget {
   }
 }
 
-// Before the plan: the website as the analyst reads it.
+// Before the plan: the website as the analyst reads it. The owner changes the photos in
+// the plan's review, so this step only shows what was found.
 class _Reading extends StatelessWidget {
-  const _Reading({required this.view, required this.host, required this.chosen, required this.onChoose, this.onConfirm});
+  const _Reading({required this.view, required this.host});
   final _View view;
   final String host;
-  // The images the owner picked to be on the slides (asset ids).
-  final Set<String> chosen;
-  final void Function(String) onChoose;
-  // While the analyst waits for the owner: sends the pick; the director starts.
-  final VoidCallback? onConfirm;
 
   static const groups = [
     ('product', 'Products'),
@@ -1208,25 +1185,6 @@ class _Reading extends StatelessWidget {
           ]),
         ]),
         const SizedBox(height: 18),
-        if (onConfirm != null)
-          Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-            decoration: BoxDecoration(color: _C.violet.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(10), border: Border.all(color: _C.violet.withValues(alpha: 0.4))),
-            child: Row(children: [
-              _Countdown(until: view.pickUntil!, label: 'Director starts in'.tr),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  chosen.isEmpty
-                      ? 'Tap the images that must be on the slides. With none picked, the director uses the analyst\'s choice.'.tr
-                      : '{n} picked: the director uses only these.'.trf({'n': chosen.length}),
-                  style: const TextStyle(fontSize: 13, color: _C.muted),
-                ),
-              ),
-              FilledButton.icon(onPressed: onConfirm, icon: const Icon(Icons.check_rounded), label: Text('Confirm images'.tr)),
-            ]),
-          ),
         // The images by what they show.
         for (final (kind, title) in groups)
           if (images.any((a) => (a['kind'] ?? 'other') == kind)) ...[
@@ -1236,7 +1194,7 @@ class _Reading extends StatelessWidget {
             ),
             Wrap(spacing: 12, runSpacing: 12, children: [
               for (final a in images.where((a) => (a['kind'] ?? 'other') == kind))
-                _AssetTile(asset: a, chosen: chosen.contains('${a['id']}'), onTap: () => onChoose('${a['id']}')),
+                _AssetTile(asset: a),
             ]),
             const SizedBox(height: 10),
           ],
@@ -1246,12 +1204,9 @@ class _Reading extends StatelessWidget {
 }
 
 class _AssetTile extends StatelessWidget {
-  const _AssetTile({required this.asset, required this.chosen, required this.onTap});
+  const _AssetTile({required this.asset});
   final Map asset;
-  final bool chosen;
-  final VoidCallback onTap;
 
-  // Every image in full color: the picked ones carry the green border and the Use badge.
   @override
   Widget build(BuildContext context) => SizedBox(
         width: 180,
@@ -1260,34 +1215,18 @@ class _AssetTile extends StatelessWidget {
           MouseRegion(
             cursor: SystemMouseCursors.click,
             child: GestureDetector(
-              onTap: onTap,
+              onTap: () => showAsset(context, asset, false, null),
               child: Container(
-                decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: chosen ? _C.ok : _C.line, width: chosen ? 3 : 1)),
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: _C.line)),
                 clipBehavior: Clip.antiAlias,
                 child: ColoredBox(color: _G.canvas, child: _Net('${asset['url']}', fit: BoxFit.cover)),
               ),
             ),
           ),
-          if (chosen)
-            Positioned(
-              right: 8,
-              top: 8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: _C.ok, borderRadius: BorderRadius.circular(12)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.check_rounded, size: 12, color: Colors.white),
-                  const SizedBox(width: 3),
-                  Text('Use'.tr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
-                ]),
-              ),
-            ),
-          // What the AI read in it, big.
           Positioned(
             left: 8,
             top: 8,
-            child: InkWell(
-              onTap: () => showAsset(context, asset, !chosen, onTap),
+            child: IgnorePointer(
               child: Container(
                 width: 30,
                 height: 30,
@@ -2281,7 +2220,6 @@ class _Progress extends StatelessWidget {
     final now = v.error != null
         ? 'The run stopped'.tr
         : switch (step) {
-            0 when v.pickUntil != null => 'Your turn: pick the images the agents can use'.tr,
             0 => 'The analyst is reading your website'.tr,
             1 => 'The director is planning the story'.tr,
             2 when v.planUntil != null => 'Your turn: review the director\'s plan'.tr,
@@ -3982,6 +3920,8 @@ class _PlanBoardState extends State<_PlanBoard> {
     final left = widget.view.planUntil == null ? 0 : widget.view.planUntil!.difference(DateTime.now()).inSeconds.clamp(0, 999);
     final photoUrl = {for (final p in [...photos, ...choices]) p.id: p};
     final inUse = {for (final sl in slides) if (!removed.contains(sl['n'])) photoOf(sl)};
+    // Every image from the website: the run's photos first, then the ones it didn't pick.
+    final website = _websiteChoices(photos, widget.view.site);
     return _Panel(
       title: 'The director\'s plan'.tr,
       trailing: Text('${plan['format'] ?? ''}'.toUpperCase(), style: mono(size: 11, color: _colorOf('director'), weight: FontWeight.w700)),
@@ -3996,19 +3936,19 @@ class _PlanBoardState extends State<_PlanBoard> {
             Row(children: [
               Text('Photos from the website'.tr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
               const SizedBox(width: 8),
-              Text('{used} used · {found} found'.trf({'used': inUse.where((id) => id.isNotEmpty).length, 'found': photos.length}), style: mono(size: 11, color: _C.faint)),
+              Text('{used} used · {found} found'.trf({'used': inUse.where((id) => id.isNotEmpty).length, 'found': website.length}), style: mono(size: 11, color: _C.faint)),
             ]),
             const SizedBox(height: 8),
             SizedBox(
-              height: 74,
+              height: 125,
               child: ListView(scrollDirection: Axis.horizontal, children: [
-                for (final p in photos)
+                for (final p in website)
                   Padding(
-                    padding: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.only(right: 8),
                     child: Opacity(
-                      opacity: inUse.contains(p.id) ? 1 : 0.45,
+                      opacity: widget.excluded.contains(p.asset) ? 0.5 : 1,
                       child: SizedBox(
-                        width: 60,
+                        width: 100,
                         child: Stack(fit: StackFit.expand, children: [
                           _PhotoTile(
                             photo: p,

@@ -102,69 +102,76 @@ export async function runCarousel(run: Run): Promise<void> {
     };
     await buildAll();
 
-    if (html) {
-      // The reference is judged once the carousel is whole: under 6, the art director picks
-      // another reference from the library and the slides are drawn again, once.
-      await reviewWholeSet(run, gimp, plan, built, measured, true);
-      const first = run.styleRef;
-      const outOfTime = overBudget(run, 0.7);
-      if (outOfTime && (run.setScore ?? 10) < 6) run.emit('status', 'system', `Past 70 % of the time budget: the carousel is delivered as it is (${run.setScore}/10).`);
-      // It follows the reference but some slides have defects: only those are drawn again, with
-      // their notes, in the same reference. Another reference only when the look is off.
-      const named = (run.setReview?.slides ?? []).filter((s) => s.why);
-      if (!outOfTime && (run.setScore ?? 10) < 6 && run.setReview?.followsReference !== false && named.length) {
-        run.emit('thought', 'designer', `The set follows "${first?.title ?? 'the reference'}" but ${named.length === 1 ? 'slide' : 'slides'} ${named.map((s) => s.n).join(', ')} ${named.length === 1 ? 'has' : 'have'} defects: I draw ${named.length === 1 ? 'it' : 'them'} again with the notes.`);
-        await Promise.all(
-          named.map(async (s) => {
-            const slide = plan.slides.find((p) => p.n === s.n);
-            if (!slide) return;
-            slide.critique = s.why;
-            const result = await buildAndReview(run, gimp, plan, slide, [], {});
-            built.set(slide.n, result.built);
-            measured.set(slide.n, result.measured);
-          }),
-        );
+    // Step 5: every slide is approved. Nothing from here cancels the carousel, not a model
+    // that doesn't answer nor a stop: it goes out as it is.
+    try {
+      if (html) {
+        // The reference is judged once the carousel is whole: under 6, the art director picks
+        // another reference from the library and the slides are drawn again, once.
         await reviewWholeSet(run, gimp, plan, built, measured, true);
-      } else if (!outOfTime && (run.setScore ?? 10) < 6 && first?.by === 'agent') {
-        const next = await pickReference(run, plan, [first.id]).catch(() => undefined);
-        if (next) {
-          run.emit('thought', 'designer', `The set scored ${run.setScore}/10 against "${first.title}": I try another reference, "${next.ref.title}". ${next.why}`, { data: { url: run.fileUrl(next.ref.file) } });
-          // The first carousel is kept: if the other reference scores lower, it comes back.
-          const before = { score: run.setScore ?? 0, slides: structuredClone(run.slides), ref: first, htmlRef: system.htmlRef, master: system.htmlMaster, notes: run.styleNotes };
-          const keep = path.join(run.dir, 'first-reference');
-          await mkdir(keep, { recursive: true });
-          for (const s of run.slides) for (const f of [s.file, s.file.replace(/\.png$/, '.xcf')]) await copyFile(path.join(run.dir, f), path.join(keep, path.basename(f))).catch(() => undefined);
-          system.htmlRef = next.ref.file;
-          system.htmlMaster = undefined;
-          run.styleRef = { id: next.ref.id, title: next.ref.title, by: 'agent' };
-          run.styleNotes = describeSystem(system);
-          for (const s of plan.slides) {
-            s.critique = undefined;
-            s.tweaks = undefined;
-          }
-          run.slides = [];
-          await buildAll();
+        const first = run.styleRef;
+        const outOfTime = overBudget(run, 0.7);
+        if (outOfTime && (run.setScore ?? 10) < 6) run.emit('status', 'system', `Past 70 % of the time budget: the carousel is delivered as it is (${run.setScore}/10).`);
+        // It follows the reference but some slides have defects: only those are drawn again, with
+        // their notes, in the same reference. Another reference only when the look is off.
+        const named = (run.setReview?.slides ?? []).filter((s) => s.why);
+        if (!outOfTime && (run.setScore ?? 10) < 6 && run.setReview?.followsReference !== false && named.length) {
+          run.emit('thought', 'designer', `The set follows "${first?.title ?? 'the reference'}" but ${named.length === 1 ? 'slide' : 'slides'} ${named.map((s) => s.n).join(', ')} ${named.length === 1 ? 'has' : 'have'} defects: I draw ${named.length === 1 ? 'it' : 'them'} again with the notes.`);
+          await Promise.all(
+            named.map(async (s) => {
+              const slide = plan.slides.find((p) => p.n === s.n);
+              if (!slide) return;
+              slide.critique = s.why;
+              const result = await buildAndReview(run, gimp, plan, slide, [], {});
+              built.set(slide.n, result.built);
+              measured.set(slide.n, result.measured);
+            }),
+          );
           await reviewWholeSet(run, gimp, plan, built, measured, true);
-          if ((run.setScore ?? 0) < before.score) {
-            for (const s of before.slides) for (const f of [s.file, s.file.replace(/\.png$/, '.xcf')]) await copyFile(path.join(keep, path.basename(f)), path.join(run.dir, f)).catch(() => undefined);
-            run.slides = before.slides;
-            run.styleRef = before.ref;
-            system.htmlRef = before.htmlRef;
-            system.htmlMaster = before.master;
-            run.styleNotes = before.notes;
-            run.setScore = before.score;
-            for (const s of run.slides) emitAdjusted(run, s.n, `Slide ${s.n} back to "${before.ref.title}"`);
-            run.emit('thought', 'designer', `"${next.ref.title}" scored lower: the carousel goes back to "${before.ref.title}" (${before.score}/10).`);
+        } else if (!outOfTime && (run.setScore ?? 10) < 6 && first?.by === 'agent') {
+          const next = await pickReference(run, plan, [first.id]).catch(() => undefined);
+          if (next) {
+            run.emit('thought', 'designer', `The set scored ${run.setScore}/10 against "${first.title}": I try another reference, "${next.ref.title}". ${next.why}`, { data: { url: run.fileUrl(next.ref.file) } });
+            // The first carousel is kept: if the other reference scores lower, it comes back.
+            const before = { score: run.setScore ?? 0, slides: structuredClone(run.slides), ref: first, htmlRef: system.htmlRef, master: system.htmlMaster, notes: run.styleNotes };
+            const keep = path.join(run.dir, 'first-reference');
+            await mkdir(keep, { recursive: true });
+            for (const s of run.slides) for (const f of [s.file, s.file.replace(/\.png$/, '.xcf')]) await copyFile(path.join(run.dir, f), path.join(keep, path.basename(f))).catch(() => undefined);
+            system.htmlRef = next.ref.file;
+            system.htmlMaster = undefined;
+            run.styleRef = { id: next.ref.id, title: next.ref.title, by: 'agent' };
+            run.styleNotes = describeSystem(system);
+            for (const s of plan.slides) {
+              s.critique = undefined;
+              s.tweaks = undefined;
+            }
+            run.slides = [];
+            await buildAll();
+            await reviewWholeSet(run, gimp, plan, built, measured, true);
+            if ((run.setScore ?? 0) < before.score) {
+              for (const s of before.slides) for (const f of [s.file, s.file.replace(/\.png$/, '.xcf')]) await copyFile(path.join(keep, path.basename(f)), path.join(run.dir, f)).catch(() => undefined);
+              run.slides = before.slides;
+              run.styleRef = before.ref;
+              system.htmlRef = before.htmlRef;
+              system.htmlMaster = before.master;
+              run.styleNotes = before.notes;
+              run.setScore = before.score;
+              for (const s of run.slides) emitAdjusted(run, s.n, `Slide ${s.n} back to "${before.ref.title}"`);
+              run.emit('thought', 'designer', `"${next.ref.title}" scored lower: the carousel goes back to "${before.ref.title}" (${before.score}/10).`);
+            }
           }
         }
+      } else {
+        // The whole set on one contact sheet: one family, or which slides break it. When
+        // anything changed, the critic looks once more and that verdict is the set's score.
+        const outOfTime = overBudget(run, 0.7);
+        const moved = outOfTime ? 0 : await unifySkeleton(run, gimp, plan, built, measured);
+        const adjusted = await reviewWholeSet(run, gimp, plan, built, measured, outOfTime);
+        if (!outOfTime && moved + adjusted > 0) await reviewWholeSet(run, gimp, plan, built, measured, true);
       }
-    } else {
-      // The whole set on one contact sheet: one family, or which slides break it. When
-      // anything changed, the critic looks once more and that verdict is the set's score.
-      const outOfTime = overBudget(run, 0.7);
-      const moved = outOfTime ? 0 : await unifySkeleton(run, gimp, plan, built, measured);
-      const adjusted = await reviewWholeSet(run, gimp, plan, built, measured, outOfTime);
-      if (!outOfTime && moved + adjusted > 0) await reviewWholeSet(run, gimp, plan, built, measured, true);
+    } catch (error) {
+      run.stopRequested = false;
+      run.emit('status', 'system', `The final review didn't finish (${(error as Error).message}): the carousel goes out with every slide as it was approved.`);
     }
 
     run.status = 'done';
@@ -898,7 +905,12 @@ async function unifySkeleton(run: Run, gimp: Gimp, plan: Plan, built: Map<number
 async function reviewWholeSet(run: Run, gimp: Gimp, plan: Plan, built: Map<number, Built>, measuredBefore = new Map<number, string[]>(), final = false): Promise<number> {
   const files = run.slides.map((s) => ({ n: s.n, file: path.join(run.dir, s.file) }));
   const ref = run.styleRef ? reference(run.styleRef.id) : undefined;
-  const review = await reviewSet(plan, files, run.styleNotes ?? '', ref ? { file: ref.file, title: ref.title } : undefined, run.brief.language ?? 'English');
+  // Every slide is already approved: a set review that doesn't answer skips, it doesn't sink the carousel.
+  const review = await reviewSet(plan, files, run.styleNotes ?? '', ref ? { file: ref.file, title: ref.title } : undefined, run.brief.language ?? 'English').catch((error: Error) => {
+    run.emit('status', 'critic', `The review of the whole set didn't answer (${error.message}): the carousel goes out as each slide was approved.`);
+    return undefined;
+  });
+  if (!review) return 0;
   run.setScore = review.score;
   run.setReview = { followsReference: review.followsReference, slides: review.slides.map((s) => ({ n: s.n, why: [describeRequests(s.fixes), ...s.templateIssues].filter(Boolean).join('; ') })) };
   const sheetFile = path.join(run.dir, 'snaps', `set-${Date.now()}.jpg`);

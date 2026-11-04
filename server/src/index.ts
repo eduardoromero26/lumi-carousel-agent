@@ -7,13 +7,13 @@ import sharp from 'sharp';
 import path from 'node:path';
 import { config } from './config.js';
 import { ensureGimp, stopGimp } from './gimp_process.js';
-import { animateCarousel, editSlide, runCarousel } from './orchestrator.js';
+import { animateCarousel, chatWithDirector, editSlide, runCarousel } from './orchestrator.js';
 import { alphaBox, isBadge, luminance, plainEdge, studioShot, trimLogo } from './agents/analyst.js';
 import type { Asset } from './run.js';
 
 // Some hosts (Mixkit, Openverse) hang over IPv6 on this network: IPv4 first.
 setDefaultResultOrder('ipv4first');
-import { Run, type Brief } from './run.js';
+import { Run, type Brief, type PlanReview } from './run.js';
 import { backfill, batchFeedback, calibrationReport, judgedVotes, learningVotes, listCarousels, rawTaste, saveBatchFeedback, saveCarousel, saveLearningVote, saveVote, starsOf, taste, votesOf } from './db.js';
 import { library } from './learned.js';
 import { backfillLibrary, libraryItems, libraryUrl } from './library.js';
@@ -32,6 +32,8 @@ Run.onSave = (run) => {
 const runs = new Map<string, Run>();
 // GIMP is a single desktop app: one run at a time.
 let busy = false;
+// The run GIMP is on now, from the queue or from Create: the agents' room opens it live.
+let current: string | null = null;
 
 // kind "logo": the business logo; anything else is a photo.
 type PhotoUpload = { name: string; base64: string; note?: string; kind?: 'logo' };
@@ -53,6 +55,8 @@ const server = http.createServer(async (req, res) => {
       if (body.brief.url && !/^https?:\/\//i.test(body.brief.url)) body.brief.url = `https://${body.brief.url}`;
       if (body.brief.reference && !reference(body.brief.reference)) return json(res, 400, { error: 'That style is no longer in the gallery' });
       const run = new Run(body.brief);
+      // From Create: the owner reviews the plan before the design starts.
+      run.interactive = true;
       await run.init();
       await addPhotos(run, body.photos ?? []);
       runs.set(run.id, run);
@@ -194,6 +198,42 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { votes: votesOf(run.id), stars: starsOf(run.id) });
     }
 
+    // POST /api/runs/:id/images {exclude}: the website images the owner leaves out, while they wait
+    if (req.method === 'POST' && parts[3] === 'images') {
+      if (!run?.imagePick) return json(res, 409, { error: 'The director has already started with the images.' });
+      const { exclude } = (await readJson(req)) as { exclude?: unknown };
+      run.imagePick(Array.isArray(exclude) ? exclude.filter((x): x is string => typeof x === 'string') : []);
+      return json(res, 202, run.summary());
+    }
+
+    // POST /api/runs/:id/plan {slides, note}: the owner's changes to the plan, while it waits
+    if (req.method === 'POST' && parts[3] === 'plan') {
+      if (!run?.planReview) return json(res, 409, { error: 'The plan can no longer change: the design has started.' });
+      const review = (await readJson(req)) as PlanReview;
+      run.planReview({
+        slides: Array.isArray(review?.slides) ? review.slides : [],
+        note: typeof review?.note === 'string' ? review.note.slice(0, 600) : undefined,
+        exclude: Array.isArray(review?.exclude) ? review.exclude.filter((x): x is string => typeof x === 'string') : undefined,
+      });
+      return json(res, 202, run.summary());
+    }
+
+    // POST /api/runs/:id/chat {text}: the owner writes to the director in the team chat
+    if (req.method === 'POST' && parts[3] === 'chat') {
+      if (!run) return json(res, 404, { error: 'Run not found' });
+      if (run.status !== 'done' || !run.plan) return json(res, 409, { error: 'The director answers once the carousel is ready' });
+      if (busy) return json(res, 409, { error: 'The team is busy with another carousel: pause the queue and try again.' });
+      const { text } = (await readJson(req)) as { text?: string };
+      if (!text?.trim()) return json(res, 400, { error: 'Write something to the director' });
+      busy = true;
+      current = run.id;
+      void chatWithDirector(run, text.trim().slice(0, 1000)).finally(() => {
+        current = null;
+        release();
+      });
+      return json(res, 202, run.summary());
+    }
+
     // POST /api/runs/:id/slides/:n/edit {feedback}
     if (req.method === 'POST' && parts[3] === 'slides' && parts[5] === 'edit') {
       if (!run) return json(res, 404, { error: 'Run not found' });
@@ -214,7 +254,12 @@ const server = http.createServer(async (req, res) => {
       if (run.status !== 'done' || !run.slides.length) return json(res, 409, { error: 'The carousel is not finished yet' });
       if (busy) return json(res, 409, { error: 'Another carousel is being made.' });
       busy = true;
-      void animateCarousel(run, { cards: parts[3] === 'motion' }).finally(release);
+      // The room opens it live, like a carousel being made.
+      current = run.id;
+      void animateCarousel(run, { cards: parts[3] === 'motion' }).finally(() => {
+        current = null;
+        release();
+      });
       return json(res, 202, run.summary());
     }
 
@@ -274,10 +319,30 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+// Runs that failed in a row because GIMP was down: past 3 the queue pauses instead of
+// failing every website left in the batch.
+let gimpFailures = 0;
+
 function start(run: Run, item?: QueueItem): void {
   busy = true;
-  void runCarousel(run).finally(() => {
-    if (item) markFinished(item.id, run);
+  current = run.id;
+  // A carousel from Create goes on to its 30 s reel (REELS=1); the queue's mass runs don't.
+  const reel = () => (config.reels && !item && run.status === 'done' && run.slides.length ? animateCarousel(run, { cards: false }) : undefined);
+  void runCarousel(run)
+    .then(reel)
+    .catch((error: Error) => console.error(error))
+    .finally(() => {
+    current = null;
+    if (item) {
+      markFinished(item.id, run);
+      const error = run.status === 'failed' ? [...run.events].reverse().find((e) => e.type === 'error')?.text ?? '' : '';
+      gimpFailures = /MCP error|GIMP/i.test(error) ? gimpFailures + 1 : 0;
+      if (gimpFailures >= 3) {
+        setPaused(true);
+        gimpFailures = 0;
+        console.error(`Queue paused: GIMP failed 3 runs in a row (${error}).`);
+      }
+    }
     release();
   });
 }
@@ -308,7 +373,7 @@ async function pump(): Promise<void> {
 function queueState() {
   const items = queueItems();
   const feedback = batchFeedback();
-  return { paused: isPaused(), busy, running: items.find((i) => i.status === 'running')?.runId ?? null, items, batches: batchSummaries().map((b) => ({ ...b, feedback: feedback.find((f) => f.batch === b.batch) ?? null })) };
+  return { paused: isPaused(), busy, running: items.find((i) => i.status === 'running')?.runId ?? null, current, items, batches: batchSummaries().map((b) => ({ ...b, feedback: feedback.find((f) => f.batch === b.batch) ?? null })) };
 }
 
 // The owner's own photos and logo, read like the website's: a studio shot shows the

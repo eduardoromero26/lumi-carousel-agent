@@ -1,16 +1,17 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { analyzeAssets } from './agents/analyst.js';
+import { analyzeAssets, photoFromAsset } from './agents/analyst.js';
 import { reviewMotion, reviewSet, reviewSlide, type Review } from './agents/critic.js';
 import { MotionDesigner, validateMotion } from './agents/motion.js';
-import { ReelDirector, reviewReel } from './agents/reel.js';
+import { ReelDirector, reviewShots, type ShotsReview } from './agents/reel.js';
+import { talkToDirector } from './agents/director_chat.js';
 import { SlideDesigner } from './agents/designer.js';
 import { planCarousel } from './agents/director.js';
 import { config, SLIDE } from './config.js';
-import { spentUsd } from './llm.js';
+import { spentTokens, spentUsd } from './llm.js';
 import { Gimp, type LayerInfo } from './gimp.js';
 import { ensureGimp, restartGimp } from './gimp_process.js';
-import type { Photo, Plan, Run, SlidePlan } from './run.js';
+import type { Photo, Plan, PlanReview, Run, SlidePlan } from './run.js';
 import { check, inspect, renderCard, writeCard, writeIndex, type Card } from './motion.js';
 import { faceChanges } from './faces.js';
 import { locate, protectOnSlide, samPrompts, subjectBox } from './sam.js';
@@ -19,14 +20,14 @@ import { assetsFromScreens } from './screen_assets.js';
 import { cutOut, keyOut } from './cutout.js';
 import { designSystem } from './agents/art_director.js';
 import { cutsOut, describeSystem } from './design.js';
-import { buildSlide, type Built } from './templates.js';
+import { buildSlide, type Built, type Shape } from './templates.js';
 import { lintSlide } from './lint.js';
 import { chooseFix, type Fix } from './agents/fixer.js';
 import { describeRequests, type FixRequest } from './fixes.js';
 import sharp from 'sharp';
-import { fitBeats, inspectReel, readLook, renderReel, repairReel, validateReel, writeReel, writeReelDocs, type Sound } from './reel.js';
+import { applyShotFixes, endOrder, fitBeats, inspectReel, readLook, renderReel, repairReel, validateReel, writeReel, writeReelDocs, type ShotAction, type Sound, type Timed } from './reel.js';
 import { findMusic, findSfx } from './music.js';
-import { recentLooks } from './db.js';
+import { recentReels } from './db.js';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -37,17 +38,28 @@ export async function runCarousel(run: Run): Promise<void> {
   await withGimp(run, async (gimp) => {
     if (run.brief.url && !run.site) await readWebsite(run);
     if (!run.photos.length && !run.site) throw new Error('No photos and no website to work with.');
+    await ownerPicksImages(run);
 
 
     const plan = await planCarousel(run);
     run.plan = plan;
     run.emit('thought', 'director', `${plan.format ? `${plan.format} for a ${plan.business_type ?? 'business'}: ` : ''}${plan.concept}\n\n${plan.why}`, { data: plan });
+    await ownerReviewsPlan(run, plan);
 
     // One visual system for every slide, with the brand fonts installed in GIMP.
     run.emit('status', 'designer', 'Setting the visual system of the carousel…');
     const system = await designSystem(run, plan, gimp);
     // The pill is the cover's label; without one the device is the underline.
     if (system.device === 'pill_label' && !plan.slides[0]?.eyebrow) system.device = 'underline';
+    // A person photographed in a place keeps the place: cut out onto a flat ground she
+    // shrinks to the middle of the slide and the photo loses what sold it (Caruso, b0519a51).
+    // A cutout reference the owner picked by hand still wins.
+    if (system.composition === 'cutout' && !run.brief.reference && peopleInScenes(run, plan)) {
+      system.composition = 'split';
+      // As freshen does for photos on top: a logo at the top would sit on the faces.
+      system.logoPosition = 'bottom_center';
+      run.emit('status', 'designer', 'The photos show people in a place: they stay whole photos with a hard edge, not cutouts on a flat ground.');
+    }
     run.system = system;
     run.styleNotes = describeSystem(system);
 
@@ -71,8 +83,11 @@ export async function runCarousel(run: Run): Promise<void> {
     const failed = results.find((r) => r.status === 'rejected');
     if (failed) throw failed.reason;
 
-    // The whole set on one contact sheet: one family, or which slides break it.
-    await reviewWholeSet(run, gimp, plan, built, measured);
+    // The whole set on one contact sheet: one family, or which slides break it. When
+    // anything changed, the critic looks once more and that verdict is the set's score.
+    const moved = await unifySkeleton(run, gimp, plan, built, measured);
+    const adjusted = await reviewWholeSet(run, gimp, plan, built, measured);
+    if (moved + adjusted > 0) await reviewWholeSet(run, gimp, plan, built, measured, true);
 
     run.status = 'done';
     run.syncCost();
@@ -84,8 +99,127 @@ export async function runCarousel(run: Run): Promise<void> {
   });
 }
 
+// From Create, the analyst's images wait for the owner a moment: what they leave out never
+// reaches the director. Nothing in that time and the director starts with all of them.
+const PICK_WAIT_MS = Number(process.env.PICK_WAIT_S ?? 60) * 1000;
+
+async function ownerPicksImages(run: Run): Promise<void> {
+  if (!run.interactive || !run.photos.length) return;
+  run.emit('status', 'analyst', `Your turn: open any image to see what I read in it, leave out the ones you don't want and confirm. The director starts in ${Math.round(PICK_WAIT_MS / 1000)} s.`, {
+    data: { pickWait: { until: Date.now() + PICK_WAIT_MS } },
+  });
+  const exclude = await new Promise<string[] | null>((resolve) => {
+    run.imagePick = resolve;
+    setTimeout(() => resolve(null), PICK_WAIT_MS);
+  });
+  run.imagePick = undefined;
+  const out = new Set(exclude ?? []);
+  const before = run.photos.length;
+  if (out.size) run.photos = run.photos.filter((p) => !(p.asset && out.has(p.asset)));
+  const left = before - run.photos.length;
+  run.emit('status', 'analyst', left ? `You left out ${left} ${left === 1 ? 'image' : 'images'}: the director works with the other ${run.photos.length}.` : 'All the images stay: the director starts.', {
+    data: { pickWait: { done: true } },
+  });
+}
+
+// From Create, the plan waits for the owner a moment: the words, the photo of each slide and
+// how many slides. Nothing in that time and the design starts on its own, as from the queue.
+const PLAN_WAIT_MS = Number(process.env.PLAN_WAIT_S ?? 90) * 1000;
+
+async function ownerReviewsPlan(run: Run, plan: Plan): Promise<void> {
+  if (!run.interactive) return;
+  run.emit('status', 'director', `Your turn: change the words, the photos or the slides. The design starts in ${Math.round(PLAN_WAIT_MS / 1000)} s.`, {
+    data: { planWait: { until: Date.now() + PLAN_WAIT_MS } },
+  });
+  const review = await new Promise<PlanReview | null>((resolve) => {
+    run.planReview = resolve;
+    setTimeout(() => resolve(null), PLAN_WAIT_MS);
+  });
+  run.planReview = undefined;
+  if (!review) {
+    run.emit('status', 'director', 'No changes from you: the design starts.', { data: { planWait: { done: true } } });
+    return;
+  }
+  // Images the owner left out: their photos (and cutouts) go, and a slide that used one
+  // takes a free photo instead.
+  const out = new Set(review.exclude ?? []);
+  const changed: string[] = [];
+  if (out.size) {
+    const dropped = new Set(run.photos.filter((p) => p.asset && out.has(p.asset)).map((p) => p.id));
+    run.photos = run.photos.filter((p) => !dropped.has(p.id) && !dropped.has(p.id.replace(/[ck]+$/, '')));
+    const free = () => run.photos.filter((p) => !p.backdrop && !plan.slides.some((s) => s.photo === p.id)).map((p) => p.id);
+    for (const s of plan.slides) {
+      if (s.photo && !run.photos.some((p) => p.id === s.photo)) {
+        s.photo = free()[0];
+        changed.push(`slide ${s.n} photo ${s.photo ?? 'none'}`);
+      }
+    }
+    changed.push(`${dropped.size} ${dropped.size === 1 ? 'image' : 'images'} left out`);
+  }
+  const photos = new Set(run.photos.map((p) => p.id));
+  for (const r of review.slides ?? []) {
+    const s = plan.slides.find((x) => x.n === r.n);
+    if (!s) continue;
+    for (const key of ['headline', 'body', 'button'] as const) {
+      const value = r[key]?.trim();
+      if (value !== undefined && value !== (s[key] ?? '')) {
+        s[key] = value;
+        changed.push(`slide ${s.n} ${key}`);
+      }
+    }
+    // Any image the analyst found on the website, not only the ones it picked: it becomes a photo.
+    let pick = r.photo;
+    if (pick && !photos.has(pick)) {
+      const asset = run.assets.find((a) => a.id === pick && a.kind !== 'logo' && a.kind !== 'icon');
+      if (asset) {
+        const known = run.photos.find((p) => p.asset === asset.id && !p.cutout);
+        const photo = known ?? (await photoFromAsset(run, asset));
+        if (!known) run.photos.push(photo);
+        photos.add(photo.id);
+        pick = photo.id;
+      }
+    }
+    if (pick && photos.has(pick) && pick !== s.photo) {
+      s.photo = pick;
+      changed.push(`slide ${s.n} photo ${pick}`);
+    }
+  }
+  // Slides out, never below three; the rest renumbered in order.
+  const gone = new Set((review.slides ?? []).filter((r) => r.remove).map((r) => r.n));
+  if (gone.size && plan.slides.length - gone.size >= 3) {
+    plan.slides = plan.slides.filter((s) => !gone.has(s.n));
+    plan.slides.forEach((s, i) => (s.n = i + 1));
+    changed.push(`${gone.size} ${gone.size === 1 ? 'slide' : 'slides'} out`);
+  }
+  const note = review.note?.trim();
+  if (note) {
+    run.emit('thought', 'owner', note);
+    // The owner's word reaches the art director and the critic with the plan.
+    plan.why = `${plan.why}\nThe owner asks: ${note}`;
+  }
+  run.emit(
+    'thought',
+    'director',
+    `${plan.format ? `${plan.format} for a ${plan.business_type ?? 'business'}: ` : ''}${plan.concept}\n\n${changed.length ? `Updated with your changes: ${changed.join(', ')}.` : 'Approved as it was.'}`,
+    { data: { ...plan, planWait: { done: true } } },
+  );
+}
+
 // The owner's review of a finished slide: the designer reopens its XCF with all
 // the layers, applies the feedback and the critic checks it was applied.
+// The owner talks to the director in the team chat: the director answers there and its
+// changes go to the designer one slide after another, as the owner's edits do.
+export async function chatWithDirector(run: Run, message: string): Promise<void> {
+  run.emit('thought', 'owner', message);
+  try {
+    const answer = await talkToDirector(run, message);
+    run.emit('thought', 'director', answer.reply, { data: { reply: true, edits: answer.edits } });
+    for (const e of answer.edits) await editSlide(run, e.slide, e.change);
+  } catch (error) {
+    run.emit('error', 'system', `The director could not answer: ${(error as Error).message}`);
+  }
+}
+
 export async function editSlide(run: Run, n: number, feedback: string): Promise<void> {
   const plan = run.plan;
   const slide = plan?.slides.find((s) => s.n === n);
@@ -114,8 +248,10 @@ async function withGimp(run: Run, work: (gimp: Gimp) => Promise<void>): Promise<
   run.stopRequested = false;
   // The meter is process-wide and runs go one at a time.
   const base = spentUsd() - run.cost;
+  const baseTokens = spentTokens() - run.tokens;
   run.syncCost = () => {
     run.cost = spentUsd() - base;
+    run.tokens = spentTokens() - baseTokens;
   };
   try {
     run.emit('status', 'system', 'Connecting to GIMP…');
@@ -125,8 +261,18 @@ async function withGimp(run: Run, work: (gimp: Gimp) => Promise<void>): Promise<
       run.emit('status', 'system', 'GIMP did not answer: restarting it…');
       await gimp.close().catch(() => {});
       await restartGimp();
-      gimp = new Gimp();
-      await gimp.connect();
+      // The port opens before the plugin answers: one try right away failed every run of a batch.
+      for (let attempt = 1; ; attempt++) {
+        gimp = new Gimp();
+        try {
+          await gimp.connect();
+          break;
+        } catch (error) {
+          await gimp.close().catch(() => {});
+          if (attempt === 6) throw error;
+          await new Promise((r) => setTimeout(r, 5000));
+        }
+      }
     });
     await work(gimp);
   } catch (error) {
@@ -181,12 +327,26 @@ function stateOf(slide: SlidePlan): SlideState {
 type Prepared = { photo?: Photo; keep: Box[]; focus?: { x: number; y: number }; person?: string };
 type Box = { x1: number; y1: number; x2: number; y2: number };
 
+const PEOPLE = /\b(team|people|person|woman|man|girl|boy|model|staff|doctor|chef|mujer|hombre|modelo|doctora?)\b/i;
+
+// Most photo slides show a person on a photo with a real background (no plain matte).
+function peopleInScenes(run: Run, plan: Plan): boolean {
+  const shots = plan.slides.flatMap((s) => {
+    const photo = s.photo ? run.photos.find((p) => p.id === s.photo) : undefined;
+    return photo && !photo.cutout && !photo.backdrop ? [{ s, photo }] : [];
+  });
+  const people = shots.filter(({ s, photo }) => !photo.matte && (PEOPLE.test(s.subject ?? '') || run.assets.find((a) => a.id === photo.asset)?.kind === 'people'));
+  return shots.length > 0 && people.length * 2 >= shots.length;
+}
+
 // What a slide needs before GIMP: the product cut out if the director asked and
 // SAM's look at the photo (once per photo). No GIMP here, so slides prepare in parallel.
 async function prepareSlide(run: Run, slide: SlidePlan): Promise<Prepared> {
   const system = run.system!;
   let photo = slide.photo ? run.photos.find((p) => p.id === slide.photo) : undefined;
-  if (photo && slide.cut_out && !photo.cutout && !photo.backdrop) {
+  // Only a studio shot (a product on a plain ground) is cut out: SAM leaves holes and
+  // fragments in a person or a sofa in its room, and the place is what sells them.
+  if (photo && slide.cut_out && !photo.cutout && !photo.backdrop && photo.matte && !slide.fresh) {
     // SAM 3.1 isolates the product: the slide uses the cutout from here on.
     const cut = await cutOut(run, photo, slide.subject || 'product').catch(() => undefined);
     run.emit('status', 'analyst', cut ? `SAM 3.1 cut the ${slide.subject || 'product'} out of its background.` : `SAM 3.1 could not find "${slide.subject}" to cut out; using the photo as it is.`, {
@@ -200,8 +360,8 @@ async function prepareSlide(run: Run, slide: SlidePlan): Promise<Prepared> {
   }
   // A website banner only shows small in a window: what it shows (the product, the team)
   // cut out of it can be the hero instead, when the cut is clean.
-  if (photo?.backdrop) {
-    const people = /\b(team|people|person|woman|man|staff|doctor)\b/i.test(`${slide.subject ?? ''} ${photo.note ?? ''}`);
+  if (photo?.backdrop && !PEOPLE.test(`${slide.subject ?? ''} ${photo.note ?? ''}`) && !slide.fresh) {
+    const people = false;
     const subject = people ? 'person' : slide.subject || 'product';
     const cut = run.photos.find((p) => p.id === `${photo!.id}c`) ?? (await cutOut(run, photo, subject).catch(() => undefined));
     run.emit('status', 'analyst', cut ? `SAM 3.1 cut the ${subject} out of the banner: it goes big instead of the banner.` : `The banner's ${subject} can't be cut out cleanly; the banner goes whole in a window.`, {
@@ -215,7 +375,7 @@ async function prepareSlide(run: Run, slide: SlidePlan): Promise<Prepared> {
   }
   // The cutout composition: the person or product of every photo slide comes out of its photo
   // (where SAM can't find it, the template gives the photo a hard edge instead).
-  if (photo && cutsOut(system, slide.layout) && !photo.cutout && !photo.backdrop) {
+  if (photo && cutsOut(system, slide.layout) && !photo.cutout && !photo.backdrop && photo.matte && !slide.fresh) {
     const people = run.assets.find((a) => a.id === photo!.asset)?.kind === 'people';
     const subject = people ? 'person' : slide.subject || 'product';
     const cut = run.photos.find((p) => p.id === `${photo!.id}c`) ?? (await cutOut(run, photo, subject).catch(() => undefined));
@@ -228,8 +388,8 @@ async function prepareSlide(run: Run, slide: SlidePlan): Promise<Prepared> {
       photo = cut;
     }
   }
-  // Products loose on the ground (the brand's way, a hero or the cutout composition): a studio shot loses its plain background.
-  if (photo?.cutout && photo.matte && (system.products === 'loose' || slide.layout === 'hero' || cutsOut(system, slide.layout))) {
+  // Every studio shot loses its plain background: in a white or grey card each slide read as a catalog.
+  if (photo?.cutout && photo.matte) {
     const keyed = run.photos.find((p) => p.id === `${photo!.id}k`) ?? (await keyOut(run, photo).catch(() => undefined));
     if (keyed) {
       slide.photo = keyed.id;
@@ -245,7 +405,7 @@ async function prepareSlide(run: Run, slide: SlidePlan): Promise<Prepared> {
   }
   // A reference whose title stands behind the subject: the subject cut out in place, over it.
   let person: string | undefined;
-  if (photo && !photo.cutout && !photo.backdrop && system.layout?.blocks.some((b) => b.behindSubject)) {
+  if (photo && !photo.cutout && !photo.backdrop && !slide.fresh && system.layout?.blocks.some((b) => b.behindSubject)) {
     const people = !!slide.facesNorm?.length || run.assets.find((a) => a.id === photo!.asset)?.kind === 'people';
     const known = run.photos.find((p) => p.id === `${photo!.id}c`);
     const cut = known?.aligned ? known : await cutOut(run, photo, people ? 'person' : slide.subject || 'product', { fresh: true }).catch(() => undefined);
@@ -290,7 +450,7 @@ async function buildAndReview(
   let from: 'critic' | 'owner' = owner.length ? 'owner' : 'critic';
   let built: Built | undefined;
   let snapshot = opts.current ?? '';
-  type Round = { xcf: string; state: SlideState; built: Built; snapshot: string; rank: number; approved: boolean; measured: string[] };
+  type Round = { xcf: string; state: SlideState; built: Built; snapshot: string; rank: number; approved: boolean; measured: string[]; score: number };
   const rounds: Round[] = [];
   const templateIssues: string[] = [];
   const maxRounds = config.maxRevisions + (opts.extraRounds ?? 0);
@@ -349,7 +509,7 @@ async function buildAndReview(
       // Approved first, then clean geometry, then the critic's score, then fewer problems.
       const rank = (review.approved ? 1000 : 0) + (measured.length ? 0 : 100) + review.score * 10 - review.issues.length;
       const bestSoFar = Math.max(...rounds.map((r) => r.rank));
-      rounds.push({ xcf, state: stateOf(slide), built, snapshot, rank, approved: review.approved, measured });
+      rounds.push({ xcf, state: stateOf(slide), built, snapshot, rank, approved: review.approved, measured, score: review.score });
       if (review.approved) break;
       // A fix that didn't beat the best round rarely does on the next try: stop paying for rounds.
       if (rounds.length > 1 && rank <= bestSoFar) {
@@ -373,6 +533,16 @@ async function buildAndReview(
   }
 
   const best = rounds.reduce((a, b) => (b.rank > a.rank ? b : a));
+  // Under 5 after its rounds, a slide isn't repaired once more: it starts over from scratch
+  // with another skeleton, the photo whole (no cutout, no reference layout), and is judged anew.
+  if (!best.approved && best.score < 5 && !slide.fresh && !owner.length && !run.stopRequested) {
+    run.emit('status', 'system', `Slide ${slide.n} ended at ${best.score}/10: starting it over from scratch with another design.`, { slide: slide.n });
+    slide.fresh = true;
+    slide.tweaks = { band: 'split' };
+    const source = slide.photo?.replace(/[ck]+$/, '');
+    if (source && run.photos.some((p) => p.id === source && !p.backdrop)) slide.photo = source;
+    return buildAndReview(run, gimp, plan, slide, approved, { extraRounds: 0 });
+  }
   if (best !== rounds[rounds.length - 1]) {
     Object.assign(slide, best.state);
     run.emit('status', 'system', `Keeping round ${rounds.indexOf(best) + 1}, the best one.`, { slide: slide.n });
@@ -495,25 +665,106 @@ async function findSubject(run: Run, slide: SlidePlan, photoPath: string): Promi
   }
 }
 
+// Rebuilds a slide with the settings already on it and keeps it only if it measures
+// clean (and passes `accept`); otherwise the caller puts the slide back. The problems.
+async function rebuildForSet(run: Run, gimp: Gimp, slide: SlidePlan, built: Map<number, Built>, measuredBefore: Map<number, string[]>, accept?: (b: Built) => string | undefined): Promise<string[]> {
+  const n = slide.n;
+  const prepared = await prepareSlide(run, slide);
+  return gimp.exclusive(async () => {
+    const rebuilt = await drawSlide(run, gimp, slide, prepared);
+    const refused = accept?.(rebuilt);
+    if (refused) return [refused];
+    // Only a problem the change brings rejects it: one the slide already had doesn't
+    // block the rest of the fix (measures differ, so problems compare by kind).
+    const kind = (issue: string) => issue.split(' (')[0];
+    const known = new Set((measuredBefore.get(n) ?? []).map(kind));
+    const all = await lintSlide(gimp, rebuilt, slide);
+    const measured = all.filter((m) => !known.has(kind(m)));
+    if (measured.length) return measured;
+    measuredBefore.set(n, all);
+    built.set(n, rebuilt);
+    await gimp.perceptualBlending();
+    await gimp.exportPng(path.join(run.dir, `slide-${n}.png`));
+    await gimp.saveXcf(xcfPath(run, n));
+    return [];
+  });
+}
+
+function emitAdjusted(run: Run, n: number, text: string): void {
+  run.emit('slide', 'system', text, {
+    slide: n,
+    data: { url: `/files/${run.id}/slide-${n}.png?v=${Date.now()}`, approved: run.slides.find((s) => s.n === n)?.approved ?? false },
+  });
+}
+
+const BANDED: Shape[] = ['overlay', 'photo_top', 'stacked'];
+
+// Over full-bleed photos each slide picks text over the photo or photo above on its
+// own (whatever covers the subject less), and the set split in two families (Cielo
+// Hamacas, 906725e5). In code: the middle slides take the master's skeleton; when text
+// over the photo would cover someone on one of them, all of them go photo above.
+async function unifySkeleton(run: Run, gimp: Gimp, plan: Plan, built: Map<number, Built>, measuredBefore: Map<number, string[]>): Promise<number> {
+  const middle = plan.slides.slice(1, -1).filter((s) => BANDED.includes(built.get(s.n)?.shape as Shape));
+  const master = built.get(plan.slides[1]?.n);
+  if (middle.length < 2 || !master || !BANDED.includes(master.shape)) return 0;
+  let moved = 0;
+  const moveAll = async (slides: SlidePlan[], band: 'top' | 'bottom' | 'split', target?: Shape): Promise<SlidePlan[]> => {
+    const failed: SlidePlan[] = [];
+    // One at a time: the first one to go photo above decides the shape the rest must match.
+    for (const slide of slides) {
+      const before = stateOf(slide);
+      slide.tweaks = { ...slide.tweaks, band };
+      const problems = await rebuildForSet(run, gimp, slide, built, measuredBefore, (b) =>
+        (target ? b.shape !== target : b.shape === 'overlay') ? `came out ${b.shape}` : undefined,
+      ).catch((error: Error) => [error.message]);
+      if (problems.length) {
+        Object.assign(slide, before);
+        failed.push(slide);
+        run.emit('status', 'designer', `Slide ${slide.n} can't take the set's skeleton (${problems.join('; ')}).`, { slide: slide.n });
+        continue;
+      }
+      target ??= built.get(slide.n)!.shape;
+      moved++;
+      emitAdjusted(run, slide.n, `Slide ${slide.n} takes the set's skeleton (${target})`);
+    }
+    return failed;
+  };
+  const outliers = middle.filter((s) => built.get(s.n)!.shape !== master.shape);
+  if (!outliers.length) return 0;
+  run.emit('status', 'system', `Slides ${outliers.map((s) => s.n).join(', ')} don't share the master's skeleton (${master.shape}): moving them to it.`);
+  const overlay = master.shape === 'overlay';
+  const failed = await moveAll(outliers, overlay ? (master.textBand === 'top' ? 'top' : 'bottom') : 'split', master.shape);
+  if (failed.length && overlay) {
+    run.emit('status', 'system', 'Text over the photo covers someone on a slide: every middle slide goes photo above instead.');
+    const target = middle.find((s) => built.get(s.n)!.shape !== 'overlay');
+    await moveAll(middle.filter((s) => built.get(s.n)!.shape === 'overlay'), 'split', target && built.get(target.n)!.shape);
+  }
+  return moved;
+}
+
 // The critic looks at all the slides side by side; the ones that break the family
 // get new settings with its fix, kept only if the rebuilt slide still measures clean.
-async function reviewWholeSet(run: Run, gimp: Gimp, plan: Plan, built: Map<number, Built>, measuredBefore = new Map<number, string[]>()): Promise<void> {
+// With final, it only judges: the set's last word, after the fixes. Slides adjusted.
+async function reviewWholeSet(run: Run, gimp: Gimp, plan: Plan, built: Map<number, Built>, measuredBefore = new Map<number, string[]>(), final = false): Promise<number> {
   const files = run.slides.map((s) => ({ n: s.n, file: path.join(run.dir, s.file) }));
   const review = await reviewSet(plan, files, run.styleNotes ?? '');
   const sheetFile = path.join(run.dir, 'snaps', `set-${Date.now()}.jpg`);
   await writeFile(sheetFile, review.sheet);
   const describe = (s: (typeof review.slides)[number]) =>
     [s.fixes.length ? describeRequests(s.fixes) : '', s.templateIssues.length ? `template issues: ${s.templateIssues.join('; ')}` : ''].filter(Boolean).join('; ');
+  const title = final ? 'The set after the fixes' : 'The set';
   run.emit(
     'review',
     'critic',
-    review.slides.length ? `The set (${review.score}/10): ${review.slides.map((s) => `slide ${s.n}: ${describe(s)}`).join('; ')}` : `The set works as one family (${review.score}/10)`,
-    { data: { consistent: review.consistent, score: review.score, slides: review.slides, url: run.fileUrl(sheetFile) } },
+    review.slides.length ? `${title} (${review.score}/10): ${review.slides.map((s) => `slide ${s.n}: ${describe(s)}`).join('; ')}` : `${title} works as one family (${review.score}/10)`,
+    { data: { consistent: review.consistent, score: review.score, slides: review.slides, url: run.fileUrl(sheetFile), final } },
   );
   for (const s of review.slides) {
     const entry = run.slides.find((k) => k.n === s.n);
     if (entry) noteTemplateIssues(run, s.n, s.templateIssues, (entry.templateIssues ??= []));
   }
+  if (final) return 0;
+  let adjusted = 0;
   // The slides to adjust go in parallel, like the first pass.
   const results = await Promise.allSettled(
     review.slides.map(async ({ n, fixes }) => {
@@ -521,30 +772,13 @@ async function reviewWholeSet(run: Run, gimp: Gimp, plan: Plan, built: Map<numbe
       if (!slide || !fixes.length) return;
       run.emit('status', 'designer', `Adjusting slide ${n} for the set: ${describeRequests(fixes)}`, { slide: n });
       const before = stateOf(slide);
-      const file = `slide-${n}.png`;
       let measured: string[];
       try {
-        const change = await chooseFix(run, plan, slide, built.get(n), [`For the whole set: ${describeRequests(fixes)}`], fixes, await slideThumb(path.join(run.dir, file)), 'critic');
+        const change = await chooseFix(run, plan, slide, built.get(n), [`For the whole set: ${describeRequests(fixes)}`], fixes, await slideThumb(path.join(run.dir, `slide-${n}.png`)), 'critic');
         slide.tweaks = change.tweaks;
         if (change.photo) slide.photo = change.photo;
         run.emit('thought', 'designer', describeFix(change), { slide: n, data: { tweaks: change.tweaks, photo: change.photo, applied: change.applied, byCode: change.byCode } });
-        const prepared = await prepareSlide(run, slide);
-        measured = await gimp.exclusive(async () => {
-          const rebuilt = await drawSlide(run, gimp, slide, prepared);
-          // Only a problem the change brings rejects it: one the slide already had doesn't
-          // block the rest of the fix (measures differ, so problems compare by kind).
-          const kind = (issue: string) => issue.split(' (')[0];
-          const known = new Set((measuredBefore.get(n) ?? []).map(kind));
-          const all = await lintSlide(gimp, rebuilt, slide);
-          const measured = all.filter((m) => !known.has(kind(m)));
-          if (measured.length) return measured;
-          measuredBefore.set(n, all);
-          built.set(n, rebuilt);
-          await gimp.perceptualBlending();
-          await gimp.exportPng(path.join(run.dir, file));
-          await gimp.saveXcf(xcfPath(run, n));
-          return [];
-        });
+        measured = await rebuildForSet(run, gimp, slide, built, measuredBefore);
       } catch (error) {
         Object.assign(slide, before);
         throw error;
@@ -554,15 +788,14 @@ async function reviewWholeSet(run: Run, gimp: Gimp, plan: Plan, built: Map<numbe
         run.emit('status', 'designer', `Slide ${n} stays as it was: the change broke it (${measured.join('; ')}).`, { slide: n });
         return;
       }
-      run.emit('slide', 'system', `Slide ${n} adjusted for the set`, {
-        slide: n,
-        data: { url: `/files/${run.id}/${file}?v=${Date.now()}`, approved: run.slides.find((s) => s.n === n)?.approved ?? false },
-      });
+      adjusted++;
+      emitAdjusted(run, n, `Slide ${n} adjusted for the set`);
     }),
   );
   // A slide whose adjustment failed keeps its approved version; only a stop ends the run.
   if (run.stopRequested) throw new Error('Stopped by the owner.');
   for (const r of results) if (r.status === 'rejected') run.emit('status', 'system', `An adjustment failed (${(r.reason as Error).message}); that slide stays as it was.`);
+  return adjusted;
 }
 
 function xcfPath(run: Run, n: number): string {
@@ -577,8 +810,10 @@ export async function animateCarousel(run: Run, { cards: makeCards = true } = {}
   if (!plan) throw new Error('No carousel to animate');
   run.status = 'running';
   const base = spentUsd() - run.cost;
+  const baseTokens = spentTokens() - run.tokens;
   const sync = () => {
     run.cost = spentUsd() - base;
+    run.tokens = spentTokens() - baseTokens;
   };
   const dir = path.join(run.dir, 'motion');
   const layersBySlide = new Map<number, LayerInfo[]>();
@@ -658,75 +893,95 @@ export async function animateCarousel(run: Run, { cards: makeCards = true } = {}
   }
 }
 
-// The 30 s reel (docs/REEL_STANDARD.md): the reel director picks the shots from the
-// presets, the code checks the rules, HyperFrames renders and the reel critic reviews frames.
+// The 30 s reel (docs/REEL_STANDARD.md), made like the carousel: the reel director picks
+// the shots from the presets once, the code checks the rules and HyperFrames renders; then
+// the critic judges every shot on its frame and asks for fixes in settings (longer, bigger
+// text, another photo…), the code applies them and renders again. The best round stays.
 async function makeReel(run: Run, plan: Plan, layersBySlide: Map<number, LayerInfo[]>): Promise<string> {
   const motionDir = path.join(run.dir, 'motion');
   const dir = path.join(motionDir, 'reel');
   const video = path.join(motionDir, 'renders', 'reel.mp4');
   const look = readLook(run, [...layersBySlide.values()]);
-  const recentHooks = recentLooks(run.id)
-    .map((l) => l.hook)
-    .filter((h): h is string => !!h);
+  // The last reels of any brand: their hooks, sequences and closes are what this one avoids.
+  const recent = recentReels(run.id);
+  const recentHooks = recent.map((l) => l.hook).filter((h): h is string => !!h);
   const director = new ReelDirector(
     run,
     plan,
     run.slides.map((s) => path.join(run.dir, s.file)),
     recentHooks,
+    recent.map((l) => l.scenes).filter((s): s is string => !!s),
   );
   run.emit('status', 'motion', 'Planning the 30 s reel…');
-  let fixes: string[] | undefined;
-  let sound: Sound | undefined;
-  for (let round = 0; round <= config.maxRevisions; round++) {
-    let spec = await director.shots(fixes);
-    // The music is chosen once, from the first plan: later rounds keep its beat.
-    if (!sound) {
-      const brief = spec.music ?? { genres: [], query: 'upbeat loop', energy: 'medium' as const };
-      run.emit('status', 'motion', `Looking for music: ${[...(brief.genres ?? []), brief.mood].filter(Boolean).join(', ') || brief.query} (${brief.energy})…`);
-      const [music, sfx] = await Promise.all([
-        findMusic({ ...brief, query: brief.query ?? brief.mood ?? 'upbeat loop' }, path.join(dir, 'audio'), run.id).catch(() => undefined),
-        findSfx(path.join(config.runsDir, '..', 'cache', 'sfx')).catch(() => ({})),
-      ]);
-      sound = { music, sfx };
-      run.emit('status', 'motion', music ? `Music: ${music.credit}, ${music.bpm} BPM. The cuts land on its beat.` : 'No music found: the reel stays silent.');
-    }
-    // The code fits the reading time; the director only gets back what takes judgment.
-    for (let i = 0; i < 2; i++) {
-      fitBeats(spec);
-      const problems = validateReel(spec, run, plan, recentHooks);
-      if (!problems.length) break;
-      run.emit('status', 'motion', `Fixing the shot list: ${problems.join('; ')}`);
-      spec = await director.shots(problems);
-    }
+  let spec = await director.shots();
+  const brief = spec.music ?? { genres: [], query: 'upbeat loop', energy: 'medium' as const };
+  run.emit('status', 'motion', `Looking for music: ${[...(brief.genres ?? []), brief.mood].filter(Boolean).join(', ') || brief.query} (${brief.energy})…`);
+  const [music, sfx] = await Promise.all([
+    findMusic({ ...brief, query: brief.query ?? brief.mood ?? 'upbeat loop' }, path.join(dir, 'audio'), run.id).catch(() => undefined),
+    findSfx(path.join(config.runsDir, '..', 'cache', 'sfx')).catch(() => ({})),
+  ]);
+  const sound: Sound = { music, sfx };
+  run.emit('status', 'motion', music ? `Music: ${music.credit}, ${music.bpm} BPM. The cuts land on its beat.` : 'No music found: the reel stays silent.');
+  // The code fits the reading time; the director only gets back what takes judgment.
+  for (let i = 0; i < 2; i++) {
     fitBeats(spec);
-    // Whatever the director could not fix and would break the render is repaired in code.
-    const repaired = repairReel(spec, run, recentHooks);
-    if (repaired.length) run.emit('status', 'motion', `Repaired in code: ${repaired.join('; ')}`);
-    run.emit('thought', 'motion', spec.notes ?? 'Shot list ready', { data: { reel: spec } });
-
-    const shots = await writeReel(dir, run, plan, spec, look, sound);
-    const checked = await check(dir);
-    if (checked.errors.length) run.emit('status', 'motion', `hyperframes check: ${checked.errors.join('; ')}`);
-    run.emit('status', 'motion', `Rendering the 30 s reel (${shots.length} shots) with HyperFrames…`);
-    await renderReel(dir, video);
-    const seen = await inspectReel(video, shots, path.join(dir, 'frames', `r${round}`));
-    const review = await reviewReel(run, shots, seen.frames, seen);
-    run.emit('review', 'critic', review.approved ? `Reel approved (${review.score}/10)` : `Reel rejected (${review.score}/10). ${review.issues.join('; ')}`, {
-      data: { ...review, measured: { length: seen.duration, stillEnd: seen.stillEnd }, url: run.fileUrl(seen.frames[0].file) },
-    });
-    // Each render costs minutes and a second one rarely scores much higher: only a
-    // reel that is really off gets another round.
-    const lastRound = round === config.maxRevisions || review.score >= config.reelRetryBelow;
-    if (review.approved || lastRound) {
-      // The cover is frame 0: the hook with its headline.
-      await promisify(execFile)('ffmpeg', ['-y', '-loglevel', 'error', '-i', video, '-frames:v', '1', path.join(motionDir, 'renders', 'reel-cover.png')]);
-      await writeReelDocs(motionDir, plan, shots, look, review, seen, spec.notes ?? '', sound?.music?.credit);
-      run.emit('video', 'motion', review.approved ? 'Reel approved' : round === config.maxRevisions ? 'Reel kept after max revisions' : `Reel kept (${review.score}/10): another render would not pay off`, {
-        data: { reel: true, url: `${run.fileUrl(video)}?v=${Date.now()}`, approved: review.approved, music: sound?.music?.credit },
-      });
-      return video;
-    }
-    fixes = review.fixes.length ? review.fixes : review.issues;
+    const problems = validateReel(spec, run, plan, recentHooks);
+    if (!problems.length) break;
+    run.emit('status', 'motion', `Fixing the shot list: ${problems.join('; ')}`);
+    spec = await director.shots(problems);
   }
+  fitBeats(spec);
+  const repaired = repairReel(spec, run, recentHooks);
+  if (repaired.length) run.emit('status', 'motion', `Repaired in code: ${repaired.join('; ')}`);
+  spec.endStyle = endOrder(recent.map((l) => l.end))[0];
+  run.emit('status', 'motion', `So it doesn't look like the last reels: opens with ${spec.shots[0]?.layout.replace('_', ' ')}, closes ${spec.endStyle === 'accent' ? 'on the accent color' : spec.endStyle === 'dark' ? 'on the dark ground' : 'with the logo low'}.`);
+
+  type Round = { round: number; file: string; shots: Timed[]; review: ShotsReview; seen: Awaited<ReturnType<typeof inspectReel>> };
+  let best: Round | undefined;
+  for (let round = 0; round <= config.maxRevisions; round++) {
+    const shots = await writeReel(dir, run, plan, spec, look, sound);
+    run.emit('thought', 'motion', round ? 'The shot list after the fixes' : (spec.notes ?? 'Shot list ready'), {
+      data: { reel: { round, end: spec.endStyle, music: sound.music?.credit, shots: shots.map(({ start, end, layout, text, photo, camera, transition, textScale }) => ({ start, end, layout, text, photo, camera, transition, textScale })) } },
+    });
+    const checked = await check(dir);
+    if (checked.errors.length) run.emit('status', 'motion', `HyperFrames check: ${checked.errors.join('; ')}`);
+    run.emit('status', 'motion', `Rendering the 30 s reel (${shots.length} shots, round ${round + 1}) with HyperFrames…`);
+    const file = path.join(motionDir, 'renders', `reel-r${round}.mp4`);
+    await renderReel(dir, file);
+    const seen = await inspectReel(file, shots, path.join(dir, 'frames', `r${round}`));
+    const review = await reviewShots(run, shots, seen.frames, seen, checked.errors);
+    for (const r of review.shots) {
+      const frame = seen.frames.find((f) => f.label === `shot-${r.n}`);
+      const failed = Object.entries(r.checks).filter(([, a]) => a.answer === 'no');
+      run.emit(
+        'review',
+        'critic',
+        `Shot ${r.n}: ${r.approved ? 'approved' : 'rejected'} (${r.score}/10).${failed.length ? ` ${failed.map(([k, a]) => `${k}: ${a.note ?? 'no'}`).join('; ')}` : ''}${r.fixes.length ? ` → ${r.fixes.map((f) => `${f.action} (${f.why})`).join('; ')}` : ''}`,
+        { data: { reel: true, shot: r.n, round, approved: r.approved, score: r.score, checks: r.checks, fixes: r.fixes, url: frame ? run.fileUrl(frame.file) : undefined } },
+      );
+    }
+    run.emit('review', 'critic', `The reel (${review.score}/10): ${review.approved ? 'every shot approved' : review.issues.slice(0, 4).join('; ')}`, {
+      data: { reel: true, round, approved: review.approved, score: review.score, checks: review.reel, video: `${run.fileUrl(file)}?v=${Date.now()}`, url: run.fileUrl(seen.frames[0].file) },
+    });
+    if (!best || review.score > best.review.score) best = { round, file, shots, review, seen };
+    const actions = review.shots.flatMap((r) => r.fixes.filter((f) => f.action !== 'none').map((f) => ({ n: r.n, action: f.action as ShotAction })));
+    if (review.approved || round === config.maxRevisions || !actions.length) break;
+    // A round that didn't improve on the best one ends the rounds, as with the slides.
+    if (round > 0 && review.score < best.review.score) break;
+    const done = applyShotFixes(spec, run, actions);
+    if (!done.length) break;
+    repairReel(spec, run, recentHooks);
+    run.emit('thought', 'motion', `Fixing the shots: ${done.join('; ')}.`, { data: { reel: true, fixes: actions } });
+  }
+  const kept = best!;
+  if (kept.round !== config.maxRevisions) run.emit('status', 'motion', `Keeping round ${kept.round + 1}, the best one.`);
+  await copyFile(kept.file, video);
+  // The cover is frame 0: the hook with its headline.
+  await promisify(execFile)('ffmpeg', ['-y', '-loglevel', 'error', '-i', video, '-frames:v', '1', path.join(motionDir, 'renders', 'reel-cover.png')]);
+  const checks = Object.fromEntries([...Object.entries(kept.review.reel), ...kept.review.shots.flatMap((r) => Object.entries(r.checks).map(([k, a]) => [`shot ${r.n} ${k}`, a] as const))]);
+  await writeReelDocs(motionDir, plan, kept.shots, look, { approved: kept.review.approved, score: kept.review.score, checks, fixes: kept.review.shots.flatMap((r) => r.fixes.map((f) => `shot ${r.n}: ${f.action} (${f.why})`)) }, kept.seen, spec.notes ?? '', music?.credit);
+  run.emit('video', 'motion', kept.review.approved ? 'Reel approved' : 'Reel kept after the critic’s rounds', {
+    data: { reel: true, url: `${run.fileUrl(video)}?v=${Date.now()}`, approved: kept.review.approved, score: kept.review.score, music: music?.credit },
+  });
   return video;
 }

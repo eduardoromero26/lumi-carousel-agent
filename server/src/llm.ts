@@ -73,9 +73,15 @@ const PRICES: Record<string, { input: number; cached: number; output: number }> 
 
 // One run at a time (GIMP is single), so a process-wide meter is enough.
 let spent = 0;
+let tokens = 0;
 
 export function spentUsd(): number {
   return spent;
+}
+
+// Every token the models read and wrote, for the live counter.
+export function spentTokens(): number {
+  return tokens;
 }
 
 export function addCost(usd: number): void {
@@ -85,6 +91,7 @@ export function addCost(usd: number): void {
 function charge(usage: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } } | undefined, model: string): void {
   const price = PRICES[model] ?? PRICES['muse-spark-1.3'];
   if (!usage) return;
+  tokens += (usage.prompt_tokens ?? 0) + (usage.completion_tokens ?? 0);
   const cached = usage.prompt_tokens_details?.cached_tokens ?? 0;
   const input = (usage.prompt_tokens ?? 0) - cached;
   spent += (input * price.input + cached * price.cached + (usage.completion_tokens ?? 0) * price.output) / 1e6;

@@ -6,7 +6,8 @@ import { config } from './config.js';
 import type { DesignSystem, Tweaks } from './design.js';
 import type { Site } from './site.js';
 
-export type Agent = 'analyst' | 'director' | 'designer' | 'critic' | 'motion' | 'system';
+// owner: the business owner's own messages in the team chat.
+export type Agent = 'analyst' | 'director' | 'designer' | 'critic' | 'motion' | 'system' | 'owner';
 
 export type RunEvent = {
   seq: number;
@@ -16,6 +17,9 @@ export type RunEvent = {
   text: string;
   slide?: number;
   data?: unknown;
+  // What the run had spent when this happened: dollars and model tokens.
+  cost?: number;
+  tokens?: number;
 };
 
 export type Brief = {
@@ -87,6 +91,8 @@ export function hashtagList(raw: unknown): string[] {
 
 export type SlidePlan = {
   n: number;
+  // Started over after a final score under 5: the photo whole, the plain skeleton, no reference.
+  fresh?: boolean;
   role: string;
   photo: string | null;
   headline: string;
@@ -137,12 +143,26 @@ export type RunStatus = 'running' | 'done' | 'failed';
 // lose a finished carousel (it can still be edited or animated).
 const SAVE_ON = new Set<RunEvent['type']>(['assets', 'slide', 'video', 'done', 'error']);
 
+// The owner's changes to the director's plan: words, the photo of each slide, slides out.
+export type PlanReview = {
+  slides: { n: number; headline?: string; body?: string; button?: string; photo?: string; remove?: boolean }[];
+  note?: string;
+  // Website images (asset ids) the owner doesn't want on the slides.
+  exclude?: string[];
+};
+
 export class Run {
   readonly id: string;
   dir: string;
   status: RunStatus = 'running';
   photos: Photo[] = [];
   assets: Asset[] = [];
+  // A run from Create: the owner reviews the director's plan before the design starts.
+  interactive = false;
+  // While the plan waits for the owner: hands the owner's review to the pipeline.
+  planReview?: (review: PlanReview | null) => void;
+  // While the analyst's images wait for the owner: the website images (asset ids) left out.
+  imagePick?: (exclude: string[] | null) => void;
   logo?: Asset;
   // White or light version of the logo, for dark backgrounds.
   logoLight?: Asset;
@@ -156,6 +176,7 @@ export class Run {
   events: RunEvent[] = [];
   // Spend of this run in US$ (model tokens, images, SAM), saved with the run.
   cost = 0;
+  tokens = 0;
   syncCost: () => void = () => {};
   private listeners = new Set<(e: RunEvent) => void>();
 
@@ -221,7 +242,7 @@ export class Run {
     // It stays on until the run ends, so no agent's own error handling can swallow it.
     if (this.stopRequested && type !== 'error' && type !== 'done') throw new Error('Stopped by the owner.');
     this.syncCost();
-    const event: RunEvent = { seq: this.events.length, at: new Date().toISOString(), type, agent, text, ...extra };
+    const event: RunEvent = { seq: this.events.length, at: new Date().toISOString(), type, agent, text, cost: Math.round(this.cost * 10000) / 10000, tokens: this.tokens, ...extra };
     this.events.push(event);
     for (const listener of this.listeners) listener(event);
     if (SAVE_ON.has(type)) {

@@ -42,9 +42,21 @@ export type Shot = {
   photos?: string[];
   // deck: one label per card; stack_list: the slabs; product_drop: up to 3 chips.
   items?: string[];
+  // The critic's bigger_text / smaller_text, applied by code (0.7 to 1.3).
+  textScale?: number;
 };
 
-export type ReelSpec = { shots: Shot[]; notes?: string; music?: MusicBrief };
+// The close, rotated by code like the carousels' grounds: on the accent with the logo on
+// top, on the dark ground with an accent button, or the logo low with the words above it.
+export const END_STYLES = ['accent', 'dark', 'low'] as const;
+export type EndStyle = (typeof END_STYLES)[number];
+
+export function endOrder(recent: (string | undefined)[]): EndStyle[] {
+  const count = (e: string) => recent.filter((r) => r === e).length;
+  return [...END_STYLES].sort((a, b) => count(a) - count(b));
+}
+
+export type ReelSpec = { shots: Shot[]; notes?: string; music?: MusicBrief; endStyle?: EndStyle };
 
 // The music bed and the sound effects of the reel.
 export type Sound = { music?: Track; sfx: Partial<Record<SfxKind, string>> };
@@ -262,6 +274,53 @@ export function repairReel(spec: ReelSpec, run: Run, recentHooks: string[] = [])
   return done;
 }
 
+// What the reel critic may ask of one shot, as with the slides: settings the code
+// applies before the next render, never a new shot list.
+export const SHOT_ACTIONS = ['longer', 'bigger_text', 'smaller_text', 'another_photo', 'other_camera', 'simpler_scene', 'other_transition'] as const;
+export type ShotAction = (typeof SHOT_ACTIONS)[number];
+
+export function applyShotFixes(spec: ReelSpec, run: Run, fixes: { n: number; action: ShotAction }[]): string[] {
+  const done: string[] = [];
+  const used = () => new Set(spec.shots.flatMap((s) => [s.photo, ...(s.photos ?? [])]).filter(Boolean));
+  for (const { n, action } of fixes) {
+    const s = spec.shots[n - 1];
+    if (!s) continue;
+    const at = `shot ${n}`;
+    const middle = n > 1 && n < spec.shots.length;
+    if (action === 'longer') {
+      s.beats += 2;
+      done.push(`${at} stays longer`);
+    } else if (action === 'bigger_text' || action === 'smaller_text') {
+      const next = Math.min(1.3, Math.max(0.7, (s.textScale ?? 1) + (action === 'bigger_text' ? 0.15 : -0.15)));
+      if (next !== (s.textScale ?? 1)) done.push(`${at} text ${action === 'bigger_text' ? 'bigger' : 'smaller'} (${Math.round(next * 100)}%)`);
+      s.textScale = next;
+    } else if (action === 'another_photo') {
+      const cut = s.layout === 'product_drop' || s.layout === 'marquee';
+      const pool = run.photos.filter((p) => !p.backdrop && (!cut || p.cutout)).map((p) => p.id);
+      const taken = used();
+      const next = pool.find((id) => !taken.has(id) && id !== s.photo) ?? pool.find((id) => id !== s.photo);
+      if (next) {
+        s.photo = next;
+        if (s.photos?.length) s.photos = [next, ...s.photos.filter((id) => id !== next)].slice(0, 5);
+        done.push(`${at} uses photo ${next}`);
+      }
+    } else if (action === 'other_camera') {
+      // The calm moves first: a pan that loses the subject becomes a push.
+      s.camera = s.camera === 'push_in' ? 'pull_out' : 'push_in';
+      done.push(`${at} camera ${s.camera.replace('_', ' ')}`);
+    } else if (action === 'simpler_scene' && middle && SCENES.has(s.layout)) {
+      const photo = s.photo ?? s.photos?.[0];
+      s.layout = photo ? 'photo_window' : 'type_only';
+      s.photo = photo;
+      done.push(`${at} becomes a ${s.layout.replace('_', ' ')}`);
+    } else if (action === 'other_transition' && n > 1) {
+      s.transition = s.transition === 'cut' ? 'blur_crossfade' : 'cut';
+      done.push(`${at} enters with ${s.transition.replace('_', ' ')}`);
+    }
+  }
+  return done;
+}
+
 // grid: the music's beat. Each cut moves to the nearest beat (half-time for fast
 // tracks), keeping every shot at least 1.5 s.
 function timeShots(spec: ReelSpec, grid?: { period: number; phase: number }): Timed[] {
@@ -462,16 +521,17 @@ export async function writeReel(dir: string, run: Run, plan: Plan, spec: ReelSpe
       placed = await placePhoto(photo.path, focus, faces, box, photo.cutout);
       placed.file = `assets/${photo.id}${ext}`;
     }
-    const ground = s.layout === 'end_card' ? look.accent : look.dark;
+    const endStyle = spec.endStyle ?? 'accent';
+    const ground = s.layout === 'end_card' && endStyle !== 'dark' ? look.accent : look.dark;
     if (i > 0 && s.transition !== 'cut' && s.transition !== 'panel') cue('whoosh', s.start - 0.32, 0.4);
-    const ink = s.layout === 'end_card' ? onAccent : look.ink;
+    const ink = s.layout === 'end_card' && endStyle !== 'dark' ? onAccent : look.ink;
     // A cutout on photo_full is a catalog hero: the product whole on the brand ground, text under it.
     const hero = s.layout === 'photo_full' && !!photo?.cutout;
     const zone = hero || s.layout === 'photo_window' || s.layout === 'product_drop' || s.layout === 'marquee' ? 'under' : s.layout === 'photo_full' ? placed!.zone : s.layout === 'deck' || s.layout === 'stack_list' || s.layout === 'grid' ? 'top' : 'center';
     // Big type: small text in a big frame reads as the banned "void with small things".
     const short = s.words.length <= 4;
     const base = { photo_wall: short ? 132 : 112, marquee: short ? 120 : 100, product_drop: short ? 104 : 92, deck: 84, grid: 84, stack_list: 84, photo_full: short ? 128 : 108, photo_window: short ? 112 : 96, type_only: short ? 176 : 160, end_card: 104 }[s.layout];
-    const size = fitSize(s.words, base, s.layout === 'type_only');
+    const size = Math.round(fitSize(s.words, base, s.layout === 'type_only') * (s.textScale ?? 1));
     const emphasis = s.emphasis ? norm(s.emphasis) : '';
     const wordHtml = s.words
       .map((w) => {
@@ -481,7 +541,7 @@ export async function writeReel(dir: string, run: Run, plan: Plan, spec: ReelSpe
       .join(' ');
 
     // The first shot is visible from CSS: frame 0 is the thumbnail.
-    html.push(`<div class="shot" id="${id}" style="z-index:${i + 1}${i === 0 ? ';visibility:visible;opacity:1' : ''}">`);
+    html.push(`<div class="shot${s.layout === 'end_card' ? ` end-${spec.endStyle ?? 'accent'}` : ''}" id="${id}" style="z-index:${i + 1}${i === 0 ? ';visibility:visible;opacity:1' : ''}">`);
     if (s.layout !== 'photo_full' || hero) html.push(`  <div class="ground${groundImage && ground === look.dark ? ' img' : ''}" style="background-color:${ground}"></div>`);
     const len0 = s.end - s.start;
     if (s.layout === 'photo_wall') {
@@ -667,7 +727,8 @@ export async function writeReel(dir: string, run: Run, plan: Plan, spec: ReelSpe
     }
     html.push(`  <div class="text zone-${zone}" style="color:${ink};font-size:${size}px;--accent:${look.accent};--on-accent:${onAccent}">${s.layout === 'type_only' ? `<div class="rule" style="background:${look.accent}"></div>` : ''}${wordHtml}</div>`);
     if (s.layout === 'end_card' && s.button) {
-      html.push(`  <div class="pill" style="border-radius:${pillR}px;${look.button === 'outline' ? `border:5px solid ${onAccent};color:${onAccent};background:transparent` : `background:${onAccent};color:${ground}`}">${esc(s.button)}</div>`);
+      const pill = spec.endStyle === 'dark' ? `background:${look.accent};color:${onAccent}` : look.button === 'outline' ? `border:5px solid ${onAccent};color:${onAccent};background:transparent` : `background:${onAccent};color:${ground}`;
+      html.push(`  <div class="pill" style="border-radius:${pillR}px;${pill}">${esc(s.button)}</div>`);
     }
     html.push('</div>');
 
@@ -883,6 +944,8 @@ export async function writeReel(dir: string, run: Run, plan: Plan, spec: ReelSpe
       .em-underline .mk { top: auto; height: 8px; bottom: 0.02em; }
       .logo { position: absolute; left: 50%; top: 560px; width: 340px; margin-left: -170px; }
       .ring { position: absolute; left: 50%; top: 560px; width: 340px; height: 340px; margin-left: -170px; border: 6px solid; border-radius: 50%; opacity: 0; }
+      .end-low .logo, .end-low .ring { top: 1080px; }
+      .shot.end-low .zone-center { top: 420px; transform: none; }
       .mini-logo { position: absolute; left: 50%; top: 300px; width: 170px; margin-left: -85px; }
       .pill { position: absolute; left: 50%; top: 1330px; transform: translateX(-50%); padding: 26px 54px; border-radius: 999px; white-space: nowrap;
         font-family: "${look.bodyFont.family}", system-ui, sans-serif; font-weight: 700; font-size: 54px; }

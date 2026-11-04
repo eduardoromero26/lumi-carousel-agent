@@ -3183,11 +3183,10 @@ class _TeamChat extends StatelessWidget {
   Widget build(BuildContext context) {
     final messages = _chat(view);
     final times = {for (final l in view.lines) l.event.seq: l.event.at};
-    final channel = (view.business ?? 'carousel'.tr).toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
     final active = busy ? _agent(view.active ?? '') : null;
     final typing = active == null ? null : view.said[active.key]?.event;
     return _Panel(
-      title: '# ${channel.isEmpty ? 'carousel'.tr : channel}',
+      title: 'Team chat'.tr,
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
         Container(width: 7, height: 7, decoration: const BoxDecoration(color: _C.ok, shape: BoxShape.circle)),
         const SizedBox(width: 5),

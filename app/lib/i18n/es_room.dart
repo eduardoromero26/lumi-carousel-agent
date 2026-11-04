@@ -1,5 +1,6 @@
 // Spanish for the room area. The key is the English text exactly as in the code.
 const Map<String, String> esRoom = {
+  'Team chat': 'Chat del equipo',
   // The team
   'Analyst': 'Analista',
   'Director': 'Director',

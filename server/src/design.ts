@@ -54,6 +54,10 @@ export type DesignSystem = {
   // The owner's reference plan (layout.ts), with the serif and sans it needs by weight.
   layout?: RefLayout;
   layoutFonts?: { serif: Record<number, string>; sans: Record<number, string> };
+  // The reference the slides imitate in HTML (html_slide.ts): its file.
+  htmlRef?: string;
+  // The master slide's HTML: the other slides keep its system (fonts, colors, objects).
+  htmlMaster?: string;
   // The reference's ground in bands (a light field over a deep one), in the brand's colors.
   zones?: { y1: number; y2: number; color: string }[];
 };
@@ -345,6 +349,7 @@ export function describeSystem(s: DesignSystem): string {
     `Products cut out and loose on the ground with a soft shadow, no white or grey card (on purpose; a card only where the cutout failed); corners ${s.radius ? `${s.radius} px` : 'square'}; ${s.ground === 'gradient' ? `gradient ground ${s.base} → ${s.ground2}` : 'flat ground'}${s.grain ? ' with grain' : ''}; ${s.button} buttons.`,
     s.siteNotes ? `From the website: ${s.siteNotes}` : '',
     s.layout ? `Photo slides follow the owner's reference layout, on purpose (its own margins, not 80 px): ${describeLayout(s.layout)}` : '',
+    s.htmlRef ? 'The slides imitate a reference from the style library, drawn by the designer: they use the reference\'s own fonts, objects (stickers, panels, badges) and composition on purpose, so judge "system" by the reference and by the other slides, not by the template fonts and device above.' : '',
     s.notes,
     decorNotes(s.decor),
   ]

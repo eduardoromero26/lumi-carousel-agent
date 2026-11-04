@@ -6,7 +6,8 @@ import 'package:web/web.dart' as web;
 
 import 'api.dart';
 import 'i18n.dart';
-import 'main.dart' show Palette, languages;
+import 'main.dart' show Palette, languages, mono;
+import 'room.dart' show openEditView;
 
 // Many websites, one carousel after another, grouped in batches. A batch's numbers
 // (set score, slides approved on the first pass, checks that failed, cost) say if a
@@ -27,6 +28,10 @@ class _QueuePageState extends State<QueuePage> {
   List<Map<String, dynamic>> lists = const [];
   String? error;
   String? openBatch;
+  // The board (every website as a ticket in its column) or the batches with their numbers.
+  bool board = true;
+  // The board shows one batch, or all of them (null).
+  String? boardBatch;
   Timer? timer;
 
   @override
@@ -189,7 +194,41 @@ class _QueuePageState extends State<QueuePage> {
               ]),
               if (error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(error!, style: const TextStyle(color: Palette.danger))),
               const SizedBox(height: 8),
+              // Loading: nothing came back yet and nothing failed.
+              if (s == null && error == null) const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
+              if (s == null && error != null)
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(child: OutlinedButton.icon(onPressed: load, icon: const Icon(Icons.refresh, size: 18), label: Text('Try again'.tr))),
+                ),
               if (s != null && batches.isEmpty) Padding(padding: const EdgeInsets.all(24), child: Center(child: Text('Nothing in the queue yet.'.tr))),
+              if (s != null && batches.isNotEmpty) ...[
+                Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  SegmentedButton<bool>(
+                    showSelectedIcon: false,
+                    segments: [
+                      ButtonSegment(value: true, icon: const Icon(Icons.view_kanban_outlined, size: 18), label: Text('Board'.tr)),
+                      ButtonSegment(value: false, icon: const Icon(Icons.bar_chart_rounded, size: 18), label: Text('Batches'.tr)),
+                    ],
+                    selected: {board},
+                    onSelectionChanged: (v) => setState(() => board = v.first),
+                  ),
+                  if (board) ...[
+                    const SizedBox(width: 8),
+                    ChoiceChip(label: Text('All batches'.tr), selected: boardBatch == null, onSelected: (_) => setState(() => boardBatch = null)),
+                    for (final b in batches.take(8))
+                      ChoiceChip(label: Text(b['batch'] as String), selected: boardBatch == b['batch'], onSelected: (_) => setState(() => boardBatch = b['batch'] as String)),
+                  ],
+                ]),
+                const SizedBox(height: 12),
+              ],
+              if (board && s != null && batches.isNotEmpty)
+                _Board(
+                  items: boardBatch == null ? _items : _items.where((i) => i['batch'] == boardBatch).toList(),
+                  onRemove: (id) => _call(() => Api.removeFromQueue(id: id)),
+                  onStop: (runId) => Api.stop(runId).then((_) => load(), onError: (Object e) => setState(() => error = '$e')),
+                ),
+              if (!board)
               for (final b in batches) ...[
                 _BatchCard(
                   summary: b,
@@ -368,6 +407,218 @@ class _Stat extends StatelessWidget {
           Text(label, style: const TextStyle(color: Palette.faint, fontSize: 12)),
           Text(value, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
         ]),
+      );
+}
+
+// The queue as a kanban board: every website is a ticket that moves from waiting to in
+// progress to ready, or to the problems column when its run failed or was stopped.
+class _Board extends StatelessWidget {
+  const _Board({required this.items, required this.onRemove, required this.onStop});
+  final List<Map<String, dynamic>> items;
+  final ValueChanged<int> onRemove;
+  final ValueChanged<String> onStop;
+
+  // A column with hundreds of done tickets would bury the board: the newest ones show.
+  static const shown = 30;
+
+  @override
+  Widget build(BuildContext context) {
+    List<Map<String, dynamic>> of(Set<String> statuses, {bool newest = false}) {
+      final list = items.where((i) => statuses.contains(i['status'])).toList();
+      if (newest) list.sort((a, b) => '${b['finishedAt'] ?? ''}'.compareTo('${a['finishedAt'] ?? ''}'));
+      return list;
+    }
+
+    final columns = [
+      ('Waiting'.tr, Palette.faint, of({'waiting'})),
+      ('In progress'.tr, Palette.primary, of({'running'})),
+      ('Ready to publish'.tr, const Color(0xFF0E8A6A), of({'done'}, newest: true)),
+      ('Needs attention'.tr, Palette.danger, of({'failed', 'stopped'}, newest: true)),
+    ];
+    return LayoutBuilder(builder: (context, box) {
+      // Wide: the four columns share the width. Narrow: they keep their width and scroll sideways.
+      final wide = box.maxWidth >= 1000;
+      final cols = [
+        for (final (title, color, list) in columns)
+          _Column(title: title, color: color, items: list, shown: shown, onRemove: onRemove, onStop: onStop),
+      ];
+      return wide
+          ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (var i = 0; i < cols.length; i++) ...[if (i > 0) const SizedBox(width: 12), Expanded(child: cols[i])],
+            ])
+          : SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                for (var i = 0; i < cols.length; i++) ...[if (i > 0) const SizedBox(width: 12), SizedBox(width: 270, child: cols[i])],
+              ]),
+            );
+    });
+  }
+}
+
+class _Column extends StatelessWidget {
+  const _Column({required this.title, required this.color, required this.items, required this.shown, required this.onRemove, required this.onStop});
+  final String title;
+  final Color color;
+  final List<Map<String, dynamic>> items;
+  final int shown;
+  final ValueChanged<int> onRemove;
+  final ValueChanged<String> onStop;
+
+  @override
+  Widget build(BuildContext context) {
+    final more = items.length - shown;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(color: const Color(0xFFF1F0F6), borderRadius: BorderRadius.circular(14), border: Border.all(color: Palette.border)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 2, 4, 10),
+          child: Row(children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+            Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14))),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(999), border: Border.all(color: Palette.border)),
+              child: Text('${items.length}', style: mono(size: 11, color: Palette.muted, weight: FontWeight.w700)),
+            ),
+          ]),
+        ),
+        if (items.isEmpty)
+          Padding(padding: const EdgeInsets.symmetric(vertical: 18), child: Text('No tickets here.'.tr, textAlign: TextAlign.center, style: const TextStyle(color: Palette.faint, fontSize: 12.5))),
+        for (final (k, item) in items.take(shown).indexed) ...[
+          if (k > 0) const SizedBox(height: 8),
+          _Ticket(key: ValueKey(item['id']), item: item, place: item['status'] == 'waiting' ? k + 1 : null, onRemove: onRemove, onStop: onStop),
+        ],
+        if (more > 0)
+          Padding(padding: const EdgeInsets.only(top: 10), child: Text('+{n} more'.trf({'n': more}), textAlign: TextAlign.center, style: const TextStyle(color: Palette.muted, fontSize: 12.5))),
+      ]),
+    );
+  }
+}
+
+class _Ticket extends StatefulWidget {
+  const _Ticket({super.key, required this.item, required this.place, required this.onRemove, required this.onStop});
+  final Map<String, dynamic> item;
+  // Its place in line, for a waiting ticket.
+  final int? place;
+  final ValueChanged<int> onRemove;
+  final ValueChanged<String> onStop;
+
+  @override
+  State<_Ticket> createState() => _TicketState();
+}
+
+class _TicketState extends State<_Ticket> with SingleTickerProviderStateMixin {
+  late final pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 900));
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.item['status'] == 'running') pulse.repeat(reverse: true);
+  }
+
+  @override
+  void didUpdateWidget(_Ticket old) {
+    super.didUpdateWidget(old);
+    final running = widget.item['status'] == 'running';
+    if (running && !pulse.isAnimating) pulse.repeat(reverse: true);
+    if (!running && pulse.isAnimating) pulse.stop();
+  }
+
+  @override
+  void dispose() {
+    pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    final status = item['status'] as String;
+    final m = item['metrics'] as Map<String, dynamic>?;
+    final runId = item['runId'] as String?;
+    final host = Uri.tryParse(item['url'] as String)?.host.replaceFirst('www.', '') ?? item['url'] as String;
+    final color = _statusColors[status] ?? Palette.faint;
+    final problem = status == 'failed' || status == 'stopped' ? (m?['error'] as String? ?? item['note'] as String? ?? '') : '';
+    final cover = status == 'done' && runId != null && (m?['slides'] as int? ?? 0) > 0;
+    return Material(
+      color: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10), side: BorderSide(color: status == 'running' ? Palette.primary.withValues(alpha: 0.5) : Palette.border)),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: runId == null ? null : () => openEditView(runId),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (cover)
+            SizedBox(
+              height: 110,
+              child: Image.network(
+                Api.fileUrl('/files/$runId/slide-1.png'),
+                fit: BoxFit.cover,
+                alignment: Alignment.topCenter,
+                errorBuilder: (_, _, _) => const ColoredBox(color: Color(0xFFF4F3F8)),
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 6, 10),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Text('#${item['id']}', style: mono(size: 11, color: Palette.faint, weight: FontWeight.w700)),
+                const SizedBox(width: 6),
+                Expanded(child: Text(host, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
+                if (status == 'waiting')
+                  IconButton(tooltip: 'Remove'.tr, visualDensity: VisualDensity.compact, iconSize: 16, onPressed: () => widget.onRemove(item['id'] as int), icon: const Icon(Icons.close, color: Palette.faint)),
+                if (status == 'running' && runId != null)
+                  IconButton(tooltip: 'Stop this run'.tr, visualDensity: VisualDensity.compact, iconSize: 17, onPressed: () => widget.onStop(runId), icon: const Icon(Icons.stop_circle_outlined, color: Palette.danger)),
+              ]),
+              const SizedBox(height: 4),
+              Text('${item['batch'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Palette.faint)),
+              const SizedBox(height: 8),
+              if (status == 'waiting')
+                Text('#{n} in line'.trf({'n': widget.place}), style: const TextStyle(fontSize: 12, color: Palette.muted)),
+              if (status == 'running')
+                Row(children: [
+                  FadeTransition(
+                    opacity: Tween(begin: 0.3, end: 1.0).animate(pulse),
+                    child: Container(width: 8, height: 8, decoration: const BoxDecoration(color: Palette.danger, shape: BoxShape.circle)),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text('The agents are on it'.tr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Palette.primary))),
+                  Text('Watch live'.tr, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Palette.primary)),
+                  const Icon(Icons.arrow_forward_rounded, size: 14, color: Palette.primary),
+                ]),
+              if (status == 'done' && m != null)
+                Wrap(spacing: 6, runSpacing: 4, children: [
+                  if (m['setScore'] != null) _Chip('{n}/10'.trf({'n': m['setScore']}), const Color(0xFF0E8A6A)),
+                  _Chip('{a}/{b} approved'.trf({'a': m['approved'], 'b': m['slides']}), Palette.muted),
+                  _Chip('US\$${m['cost']}', Palette.muted),
+                  _Chip('${m['minutes']} min', Palette.muted),
+                ]),
+              if (problem.isNotEmpty)
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Padding(padding: const EdgeInsets.only(top: 1), child: Icon(status == 'stopped' ? Icons.pause_circle_outline : Icons.error_outline_rounded, size: 14, color: color)),
+                  const SizedBox(width: 6),
+                  Expanded(child: Text(problem, maxLines: 3, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: color, height: 1.35))),
+                ]),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip(this.text, this.color);
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(6)),
+        child: Text(text, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: color)),
       );
 }
 

@@ -4,7 +4,7 @@ import 'package:web/web.dart' as web;
 
 import 'api.dart';
 import 'i18n.dart';
-import 'main.dart' show showBig, showImages;
+import 'main.dart' show Palette, showBig, showImages;
 import 'room.dart' show openEditView;
 
 // Every carousel the agents made, shown as it would look on Facebook and Instagram:
@@ -69,10 +69,13 @@ class _FeedPageState extends State<FeedPage> {
           color: Colors.white,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: Row(children: [
-            Text(
-              list == null ? 'Feed' : '{n} carousels'.trf({'n': list.length}) + (reels.isEmpty ? '' : ' · ${'{n} reels'.trf({'n': reels.length})}'),
-              style: const TextStyle(fontWeight: FontWeight.w600, color: _muted),
-            ),
+            Text('Created by the community'.tr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: Palette.ink)),
+            const SizedBox(width: 10),
+            if (list != null)
+              Text(
+                '{n} carousels'.trf({'n': list.length}) + (reels.isEmpty ? '' : ' · ${'{n} reels'.trf({'n': reels.length})}'),
+                style: const TextStyle(fontWeight: FontWeight.w600, color: _muted),
+              ),
             const Spacer(),
             SegmentedButton<_View>(
               showSelectedIcon: false,

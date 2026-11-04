@@ -198,12 +198,10 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { votes: votesOf(run.id), stars: starsOf(run.id) });
     }
 
-    // POST /api/runs/:id/images {exclude}: the website images the owner leaves out, while they wait
-    if (req.method === 'POST' && parts[3] === 'images') {
-      if (!run?.imagePick) return json(res, 409, { error: 'The director has already started with the images.' });
-      const { include, exclude } = (await readJson(req)) as { include?: unknown; exclude?: unknown };
-      const ids = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-      run.imagePick({ include: ids(include), exclude: ids(exclude) });
+    // POST /api/runs/:id/plan/hold: the owner started changing the plan, it waits for them
+    if (req.method === 'POST' && parts[3] === 'plan' && parts[4] === 'hold') {
+      if (!run?.planReview) return json(res, 409, { error: 'The plan can no longer change: the design has started.' });
+      run.planHold?.();
       return json(res, 202, run.summary());
     }
 

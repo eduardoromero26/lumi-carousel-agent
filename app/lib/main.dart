@@ -190,7 +190,8 @@ class _HomeShellState extends State<HomeShell> {
                   scrollDirection: Axis.horizontal,
                   child: Row(children: [
                     tabButton(0, Icons.auto_awesome_outlined, 'Create'.tr),
-                    tabButton(1, Icons.dynamic_feed_outlined, 'Feed'.tr),
+                    tabButton(1, Icons.groups_outlined, 'Community'.tr),
+                    tabButton(2, Icons.view_kanban_outlined, 'Queue'.tr),
                   ]),
                 ),
               ),
@@ -213,6 +214,8 @@ class _HomeShellState extends State<HomeShell> {
 }
 
 const kodemexUrl = 'https://kodemex.com.mx';
+// Lumi, where the business posts and schedules what the agents made.
+const lumiUrl = 'https://lumi.kodemex.com.mx';
 
 // EN | ES in the header: the whole UI changes language and the choice is remembered.
 class LanguageToggle extends StatelessWidget {
@@ -1613,6 +1616,11 @@ class _DoneCard extends StatelessWidget {
             onPressed: () => _download(Api.fileUrl('/api/runs/$runId/download')),
           ),
           OutlinedButton.icon(
+            icon: const Icon(Icons.send_rounded, size: 16),
+            label: Text('Post from Lumi'.tr),
+            onPressed: () => web.window.open(lumiUrl, '_blank'),
+          ),
+          OutlinedButton.icon(
             icon: const Icon(Icons.copy_rounded, size: 16),
             label: Text('Copy caption'.tr),
             onPressed: () => Clipboard.setData(ClipboardData(text: caption)),
@@ -1712,7 +1720,7 @@ class _EventRow extends StatelessWidget {
 }
 
 
-// The first screen, like a search: the mascot, the promise and the website; then the style.
+// The first screen, like a search: the mascot, the promise and the website.
 class _Start extends StatelessWidget {
   const _Start({required this.state});
   final _StudioPageState state;
@@ -1720,15 +1728,14 @@ class _Start extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = state;
-    final host = (Uri.tryParse(s.website.text.trim().startsWith('http') ? s.website.text.trim() : 'https://${s.website.text.trim()}')?.host ?? '').replaceFirst(RegExp(r'^www\.'), '');
+    // The website is all it takes: the art director picks the style from the agency's library.
     void next() {
       if (s.website.text.trim().isEmpty) return;
-      s.setStartStep(1);
+      s.chooseStyle(null);
+      s.start();
     }
 
-
-    if (s.startStep == 0) {
-      return Scaffold(
+    return Scaffold(
         backgroundColor: Palette.ground,
         body: Stack(children: [
           // Behind the promise, what the agents already made, moving.
@@ -1772,10 +1779,11 @@ class _Start extends StatelessWidget {
                     FilledButton(
                       onPressed: s.website.text.trim().isEmpty ? null : next,
                       style: FilledButton.styleFrom(minimumSize: const Size(0, 50), padding: const EdgeInsets.symmetric(horizontal: 26), shape: const StadiumBorder()),
-                      child: Row(mainAxisSize: MainAxisSize.min, children: [Text('Next'.tr), const SizedBox(width: 6), const Icon(Icons.arrow_forward_rounded, size: 18)]),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [Text('Create'.tr), const SizedBox(width: 6), const Icon(Icons.auto_awesome_rounded, size: 18)]),
                     ),
                   ]),
                 ),
+                if (s.error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(s.error!, style: const TextStyle(color: Palette.danger))),
                 const SizedBox(height: 14),
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Text('Slides in '.tr, style: const TextStyle(color: Palette.muted, fontSize: 13.5)),
@@ -1794,49 +1802,6 @@ class _Start extends StatelessWidget {
         ),
         ]),
       );
-    }
-
-    return Scaffold(
-      backgroundColor: Palette.ground,
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 28),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1120),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Row(children: [
-                TextButton.icon(onPressed: () => s.setStartStep(0), icon: const Icon(Icons.arrow_back_rounded, size: 18), label: Text('Back'.tr)),
-                const Spacer(),
-              ]),
-              const SizedBox(height: 18),
-              Row(children: [
-                Image.asset('assets/mascot.png', width: 56, height: 56),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Pick a style for {host}'.trf({'host': host}), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, letterSpacing: -0.4)),
-                    Text('The agents follow it with your logo, colors and photos. Or let them decide from your website.'.tr, style: const TextStyle(color: Palette.muted)),
-                  ]),
-                ),
-                OutlinedButton(onPressed: () {
-                  s.chooseStyle(null);
-                  s.start();
-                }, child: Text('Let the agents decide'.tr)),
-                const SizedBox(width: 8),
-                FilledButton.icon(
-                  onPressed: s.reference == null ? null : s.start,
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: Text('Start with this style'.tr),
-                ),
-              ]),
-              if (s.error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(s.error!, style: const TextStyle(color: Palette.danger))),
-              const SizedBox(height: 20),
-              StyleGallery(styles: s.styles, selected: s.reference, uploading: s.uploading, onSelect: s.chooseStyle, onUpload: s.uploadStyles, onDelete: s.deleteStyle),
-            ]),
-          ),
-        ),
-      ),
-    );
   }
 }
 

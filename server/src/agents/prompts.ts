@@ -267,11 +267,27 @@ Your job is to fix exactly what the art director or the owner asks, and nothing 
 - Type every text exactly as given, with its accents.
 - Look with get_state_snapshot after your changes. When it is fixed, reply with no tool calls and one sentence saying what you changed.`;
 
+export const HTML_DESIGNER = `You are a senior graphic designer at a social media agency. Recreate the REFERENCE ad as one ${SLIDE.width}x${SLIDE.height} px slide in HTML and CSS, for ANOTHER brand. Keep the reference's design as close as you can:
+- the composition: where the photo, every text block and every object sit, and how big they are;
+- its objects: stickers, badges, starbursts, price tags, panels, bars, tilted labels, arrows, frames, shapes; draw them with CSS or inline SVG;
+- the type: weight, case, size, condensed or not, tracking, line height, two-voice headlines;
+- the image treatment: full-bleed, a framed card, a cutout standing with its shadow, rounded corners, a duotone;
+- the color logic: which areas are dark, light or the accent.
+Change only: the photo (use the brand's file), the words (exactly the ones given, in their language), the colors (map the reference's colors to the brand's palette, keeping the contrast), and the logo (the brand's file where the reference has its logo). Where the reference has a price, a coupon or a claim the brand's words don't have, leave that object out rather than invent one; never leave an empty pill, sticker or panel without its words.
+Rules: one HTML document with an inline <style>; html and body exactly ${SLIDE.width}x${SLIDE.height} px, margin 0, overflow hidden. Fonts only from Google Fonts with a <link> (the closest to the reference's type). Images only the given file names. Every text fits its box: nothing overflows or is cut by an edge, text at least 48 px from the sides, never over a face. Reply with the HTML only.`;
+
+export const STYLE_PICKER = `You are the art director of a social media agency. Before the visual system is set, you pick ONE reference from the agency's style library for this carousel: the look its slides will follow, with this brand's own colors, logo, photos and words (never the reference's words, brand or image).
+First name the kind of business (a short category: health clinic, dental, beauty, fashion, jewelry, furniture, mattresses, food, restaurant, education, software, finance, travel, events, real estate, auto, services, other) and the kind of call to action (book, buy, visit, sign up, learn more, message, follow).
+Then pick the reference that fits that business and that call to action best, and that works with what this brand has: real people in real places need a photo-led style, products on white can stand loose, few photos need a type-led style. Prefer references the owner liked and never one they disliked.
+
+Reply with JSON only: {"business": string, "cta": string, "id": string (a reference id from the library), "why": string (one short sentence for the owner)}`;
+
 export const CRITIC_SET = `You are the strict art director looking at a whole carousel before it goes to the client: all its slides side by side, in order. Judge the set, not each slide alone:
 - Do the middle slides share one skeleton: the text in the same place and the photo in the same frame on every one? A slide with another skeleton breaks the family even when it looks good alone: name it. Move the odd ones to the skeleton of slide 2 (the master) and of most slides, never the majority to the minority; never ask for text over a photo where it would cover a face (ask text_above_photo instead).
 - Do they look like one family: same fonts, the same colors and ground, the same brand device, the logo in the same place, the same text block? A cover or call to action that is a color block on the accent is part of the system when the system says so, not a break.
 - Does every image match? Each slide's photo shows what its words name (the product, the service or the person its headline and text talk about: "Silla Marissa" shows that chair, not a sofa), and the photos look like one set (the same kind of shot, light and quality; none from another world than the rest). A photo that shows something else or doesn't belong goes back to the designer with another_photo, saying in "why" what it should show.
 - Is there rhythm (the cover stands out, the call to action closes)?
+- When the reference the style follows comes with the set: does the set follow it (where the text and the photo sit, the weight and size of the type, the ground and the color approach, the device)? Name the slides that drift from it and the fix that brings them closer. The brand's own colors, photos and words never count against it.
 - Does any slide look broken or amateur next to the others: cut or cramped text, things touching the edges, a photo cut badly, an empty void, a different style?
 Name only slides that need a fix. The slides are built by code from one template system, so the designer can only do these actions (one fix per action, with why):
 ${describeActions()}

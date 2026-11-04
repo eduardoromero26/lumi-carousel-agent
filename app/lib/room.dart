@@ -10,7 +10,7 @@ import 'package:web/web.dart' as web;
 
 import 'api.dart';
 import 'i18n.dart';
-import 'main.dart' show LanguageToggle, mono, showBig;
+import 'main.dart' show lumiUrl, mono, showBig;
 
 // Design it live: a run told from the agents' side. The team lights up as each agent
 // works, the slide is built in GIMP (its real layers, read from the .xcf), the critic is
@@ -48,27 +48,37 @@ class _G {
 }
 
 class _Agent {
-  const _Agent(this.key, this.name, this.job, this.models, this.icon, this.color);
+  const _Agent(this.key, this.name, this.job, this.models, this.icon, this.color, {this.how = const [], this.tech = const []});
   final String key;
   final String name;
   final String job;
   final List<String> models;
   final IconData icon;
   final Color color;
+  // For the demo: how it works, step by step, and what each technology does for it.
+  final List<String> how;
+  final List<(String, String)> tech;
 }
 
 const _team = [
-  _Agent('analyst', 'Analyst', 'Reads the business\'s website: finds its logo, colors and real photos, and cuts the products out of them.', ['Muse Spark', 'SAM 3.1'],
-      Icons.travel_explore_rounded, Color(0xFF2563EB)),
-  _Agent('director', 'Director', 'Decides what the carousel says: the story, slide by slide, with real facts from the website only.', ['Muse Spark'], Icons.movie_filter_outlined,
-      Color(0xFF6D4AFF)),
-  _Agent('art', 'Art director', 'Decides how it looks: fonts, colors and background, different from the last brands it designed.', ['Muse Wonder', 'Muse Image'],
-      Icons.palette_outlined, Color(0xFFDB2777)),
-  _Agent('designer', 'Designer', 'Builds every slide in GIMP, layer by layer, and the 30 s reel in HyperFrames.', ['GIMP 3', 'HyperFrames'], Icons.layers_outlined, Color(0xFF0E8A6A)),
-  _Agent('critic', 'Critic', 'Checks every slide like a strict agency boss and rejects what isn\'t ready to publish.', ['Muse Spark'], Icons.gavel_rounded,
-      Color(0xFFC2410C)),
-  _Agent('fixer', 'Fixer', 'Turns the critic\'s notes into changes and rebuilds the slide until it passes.', ['Muse Spark'], Icons.auto_fix_high_rounded,
-      Color(0xFFB45309)),
+  _Agent('analyst', 'Analyst', 'Reads the business\'s website: finds its logo, colors and real photos, and cuts the products out of them.', ['Muse Spark', 'SAM 3.1'], Icons.travel_explore_rounded, Color(0xFF2563EB),
+      how: ['Opens the website in a headless browser, on a computer and on a phone, and reads it as a visitor sees it.', 'Downloads every image at full size and sorts it: logo, products, people, places, banners.', 'Marks the photos whose product is cut by their own edge, and finds the subject and the faces in each photo.'],
+      tech: [('Muse Spark', 'vision: reads the website and sorts its images'), ('SAM 3.1', 'finds the subject and the faces, and cuts products out of their background'), ('Edge (headless)', 'renders the website like a visitor sees it')]),
+  _Agent('director', 'Director', 'Decides what the carousel says: the story, slide by slide, with real facts from the website only.', ['Muse Spark'], Icons.movie_filter_outlined, Color(0xFF6D4AFF),
+      how: ['Picks the topic most likely to bring new customers, and the format: catalog, offer, benefits, proof.', 'Writes the hook, each slide and the call to action from real facts only, never invented.', 'Gives each slide a real photo that shows what its words say; a store always shows what it sells.', 'You can change the words, the photos and the slides before the design starts.'],
+      tech: [('Muse Spark', 'plans the story, the slides and the caption')]),
+  _Agent('art', 'Art director', 'Decides how it looks: picks a style from the agency\'s library and sets the brand\'s colors and fonts.', ['Muse Wonder', 'Muse Image'], Icons.palette_outlined, Color(0xFFDB2777),
+      how: ['Picks a style from the agency\'s library by the kind of business and its call to action.', 'Learns from your votes which styles work, and avoids the ones you didn\'t like.', 'Sets the colors and fonts from the brand\'s own website and logo.', 'Has Muse Image paint the decor kit once per carousel: a texture, an element and a backdrop scene.'],
+      tech: [('Muse Wonder', 'art direction: the visual system of the carousel'), ('Muse Spark', 'picks the reference from the style library'), ('Muse Image', 'paints the decor kit, never products or people')]),
+  _Agent('designer', 'Designer', 'Draws every slide after the chosen style with the real photo, logo and words, and brings it into GIMP.', ['Muse Spark', 'GIMP 3'], Icons.layers_outlined, Color(0xFF0E8A6A),
+      how: ['Recreates the chosen reference as a slide in HTML and CSS: its composition, stickers, panels and type, with the brand\'s photo, logo, words and colors.', 'Slide 2 is the master: the other slides keep its system.', 'A headless browser renders it and it comes into GIMP as the slide\'s layer. Without a reference, it builds templates layer by layer in GIMP.', 'A rejected slide is drawn again with what the critic or you said.'],
+      tech: [('Muse Spark', 'writes each slide in HTML and CSS'), ('Edge (headless)', 'renders the slide at 1080×1350'), ('GIMP 3 over MCP', 'every slide as a real, editable file (.xcf)'), ('HyperFrames', 'the 30 s reel, when it is on')]),
+  _Agent('critic', 'Critic', 'Checks every slide like a strict agency boss and rejects what isn\'t ready to publish.', ['Muse Spark'], Icons.gavel_rounded, Color(0xFFC2410C),
+      how: ['Checks every slide with a yes/no checklist: brand, content, image, original photo, same faces, padding.', 'Code measures what a model can\'t be trusted with: overlaps, margins, faces and contrast.', 'At the end it judges the whole carousel against the reference; under 6/10, another reference is tried.', 'Your 👎 notes teach it what to reject next time.'],
+      tech: [('Muse Spark', 'vision: the checklist and the review of the whole set'), ('Code (lint)', 'geometry and contrast, measured on the layers')]),
+  _Agent('fixer', 'Fixer', 'Turns the critic\'s notes into changes and rebuilds the slide until it passes.', ['Muse Spark'], Icons.auto_fix_high_rounded, Color(0xFFB45309),
+      how: ['Turns the critic\'s notes into changes the slide can take: bigger text, another photo, text above the photo.', 'Keeps the best round, not the last one.', 'Makes the changes you ask for in plain words, from the team chat.'],
+      tech: [('Muse Spark', 'chooses the fix for each note')]),
 ];
 
 _Agent? _agent(String key) => _team.where((a) => a.key == key).firstOrNull;
@@ -144,9 +154,6 @@ class _View {
       // The plan waits for the owner until this time; done once the owner or the clock answers.
       final wait = data is Map ? data['planWait'] : null;
       if (wait is Map) planUntil = wait['until'] is num ? DateTime.fromMillisecondsSinceEpoch((wait['until'] as num).toInt()) : null;
-      final pick = data is Map ? data['pickWait'] : null;
-      if (pick is Map) pickUntil = pick['until'] is num ? DateTime.fromMillisecondsSinceEpoch((pick['until'] as num).toInt()) : null;
-      if (role == 'director') pickUntil = null;
       if (e.cost != null) cost = e.cost;
       if (e.tokens != null) tokens = e.tokens!;
       if (role == 'art') planUntil = null;
@@ -266,7 +273,6 @@ class _View {
   String? caption;
   List<String> hashtags = const [];
   DateTime? planUntil;
-  DateTime? pickUntil;
   int tokens = 0;
 
   _Slide slide(int n) => slides.putIfAbsent(n, () => _Slide(n));
@@ -640,9 +646,6 @@ class _RoomState extends State<_Room> {
   bool chatWide = false;
   // Website images (asset ids) the owner left out; they go with the plan's approval.
   final excluded = <String>{};
-  // The website images the owner picked in the analyst's step.
-  final chosen = <String>{};
-  bool imagesSent = false;
   void toggleAsset(String id) => setState(() => excluded.contains(id) ? excluded.remove(id) : excluded.add(id));
   // GIMP, the feed preview or the reel; null follows the run (the reel once it starts).
   String? stageTab;
@@ -680,8 +683,19 @@ class _RoomState extends State<_Room> {
     }
     final edit = editing;
     if (edit != null && all.length > edit.from && ((e.type == 'slide' && e.slide == edit.slide) || e.type == 'error')) editing = null;
+    // The carousel just finished while the owner watched (not a replay, not a slide edit):
+    // the ready modal, with the images and the way to post them.
+    final data = e.data;
+    if (!readyShown && widget.live && e.type == 'done' && !(data is Map && data['edited'] != null) && e.at != null && DateTime.now().difference(e.at!).inMinutes < 3) {
+      readyShown = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showReady(context, widget.runId, _View(all));
+      });
+    }
     setState(() {});
   }
+
+  bool readyShown = false;
 
   // The replay's clock: the run's own gaps, the long waits on the models cut to 5 s.
   Duration next(int i) {
@@ -799,6 +813,8 @@ class _RoomState extends State<_Room> {
       toggle: null,
       onBack: widget.onBack,
       onExit: widget.onExit,
+      // The slides made so far, at any point of the run.
+      onDownload: v.slides.values.any((s) => s.done) ? () => _saveFile(Api.fileUrl('/api/runs/${widget.runId}/download')) : null,
     );
     final progress = _Progress(view: v);
     final busyNow = liveNow || editing != null || (!v.finished && v.error == null && shown < all.length);
@@ -809,18 +825,6 @@ class _RoomState extends State<_Room> {
       work = _Reading(
         view: v,
         host: (Uri.tryParse('${widget.info?['url'] ?? v.url ?? ''}')?.host ?? '').replaceFirst(RegExp(r'^www\.'), ''),
-        chosen: chosen,
-        onChoose: (id) => setState(() => chosen.contains(id) ? chosen.remove(id) : chosen.add(id)),
-        onConfirm: liveNow && v.pickUntil != null && v.pickUntil!.isAfter(DateTime.now()) && !imagesSent
-            ? () async {
-                try {
-                  await Api.pickImages(widget.runId, include: chosen.toList());
-                  setState(() => imagesSent = true);
-                } catch (e) {
-                  if (context.mounted) ScaffoldMessenger.maybeOf(context)?.showSnackBar(SnackBar(content: Text('$e'.replaceFirst('Exception: ', ''))));
-                }
-              }
-            : null,
       );
     } else if (!v.building || slide == null) {
       work = _PlanBoard(runId: widget.runId, view: v, live: liveNow, excluded: excluded, onToggle: toggleAsset);
@@ -908,9 +912,10 @@ class _RoomState extends State<_Room> {
 }
 
 class _Header extends StatelessWidget {
-  const _Header({required this.name, required this.url, required this.logo, required this.status, required this.replay, required this.toggle, required this.onBack, this.onExit, this.spend, this.onStop, this.started, this.until});
+  const _Header({required this.name, required this.url, required this.logo, required this.status, required this.replay, required this.toggle, required this.onBack, this.onExit, this.spend, this.onStop, this.started, this.until, this.onDownload});
   // Tokens and dollars spent so far; the stop button while the agents work.
   final (int, double?)? spend;
+  final VoidCallback? onDownload;
   final DateTime? started;
   // Null while live: the timer keeps counting.
   final DateTime? until;
@@ -940,6 +945,8 @@ class _Header extends StatelessWidget {
             if (onExit != null) IconButton(tooltip: 'Close'.tr, onPressed: onExit, icon: const Icon(Icons.close_rounded, color: _C.muted)),
             // Standalone (?view=room) there is no app to close back to: the arrow goes to the list.
             if (onExit == null) IconButton(tooltip: 'All carousels'.tr, onPressed: onBack, icon: const Icon(Icons.arrow_back_rounded, color: _C.muted)),
+            // The website and its status on the left; the free space goes between them and the counters.
+            Expanded(child: Row(children: [
             Container(
               width: 34,
               height: 34,
@@ -961,11 +968,10 @@ class _Header extends StatelessWidget {
             ),
             const SizedBox(width: 14),
             _Pill(text: status.$1, color: status.$2, blink: status.$3),
-            const Spacer(),
+            ])),
+            // The run's counters and Stop, in the right corner.
             ?toggle,
             const SizedBox(width: 12),
-            const LanguageToggle(),
-            const SizedBox(width: 8),
             if (started != null) _Elapsed(started: started!, until: until),
             if (spend != null)
               Container(
@@ -980,6 +986,16 @@ class _Header extends StatelessWidget {
                     style: mono(size: 12, color: _C.text, weight: FontWeight.w700),
                   ),
                 ]),
+              ),
+            if (onDownload != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: OutlinedButton.icon(
+                  onPressed: onDownload,
+                  style: OutlinedButton.styleFrom(minimumSize: const Size(0, 36)),
+                  icon: const Icon(Icons.download_rounded, size: 18),
+                  label: Text('Download'.tr),
+                ),
               ),
             if (onStop != null)
               OutlinedButton.icon(
@@ -1129,16 +1145,12 @@ class _Avatar extends StatelessWidget {
   }
 }
 
-// Before the plan: the website as the analyst reads it.
+// Before the plan: the website as the analyst reads it. The owner changes the photos in
+// the plan's review, so this step only shows what was found.
 class _Reading extends StatelessWidget {
-  const _Reading({required this.view, required this.host, required this.chosen, required this.onChoose, this.onConfirm});
+  const _Reading({required this.view, required this.host});
   final _View view;
   final String host;
-  // The images the owner picked to be on the slides (asset ids).
-  final Set<String> chosen;
-  final void Function(String) onChoose;
-  // While the analyst waits for the owner: sends the pick; the director starts.
-  final VoidCallback? onConfirm;
 
   static const groups = [
     ('product', 'Products'),
@@ -1207,25 +1219,6 @@ class _Reading extends StatelessWidget {
           ]),
         ]),
         const SizedBox(height: 18),
-        if (onConfirm != null)
-          Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
-            decoration: BoxDecoration(color: _C.violet.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(10), border: Border.all(color: _C.violet.withValues(alpha: 0.4))),
-            child: Row(children: [
-              _Countdown(until: view.pickUntil!, label: 'Director starts in'.tr),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  chosen.isEmpty
-                      ? 'Tap the images that must be on the slides. With none picked, the director uses the analyst\'s choice.'.tr
-                      : '{n} picked: the director uses only these.'.trf({'n': chosen.length}),
-                  style: const TextStyle(fontSize: 13, color: _C.muted),
-                ),
-              ),
-              FilledButton.icon(onPressed: onConfirm, icon: const Icon(Icons.check_rounded), label: Text('Confirm images'.tr)),
-            ]),
-          ),
         // The images by what they show.
         for (final (kind, title) in groups)
           if (images.any((a) => (a['kind'] ?? 'other') == kind)) ...[
@@ -1233,9 +1226,9 @@ class _Reading extends StatelessWidget {
               padding: const EdgeInsets.only(top: 6, bottom: 8),
               child: Text('${title.tr} (${images.where((a) => (a['kind'] ?? 'other') == kind).length})', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
             ),
-            Wrap(spacing: 8, runSpacing: 8, children: [
+            Wrap(spacing: 12, runSpacing: 12, children: [
               for (final a in images.where((a) => (a['kind'] ?? 'other') == kind))
-                _AssetTile(asset: a, chosen: chosen.contains('${a['id']}'), dimmed: chosen.isNotEmpty && !chosen.contains('${a['id']}'), onTap: () => onChoose('${a['id']}')),
+                _AssetTile(asset: a),
             ]),
             const SizedBox(height: 10),
           ],
@@ -1245,51 +1238,32 @@ class _Reading extends StatelessWidget {
 }
 
 class _AssetTile extends StatelessWidget {
-  const _AssetTile({required this.asset, required this.chosen, required this.dimmed, required this.onTap});
+  const _AssetTile({required this.asset});
   final Map asset;
-  final bool chosen;
-  final bool dimmed;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: 124,
-        height: 124,
+        width: 180,
+        height: 225,
         child: Stack(fit: StackFit.expand, children: [
-          GestureDetector(
-            onTap: onTap,
-            child: Opacity(
-              opacity: dimmed ? 0.4 : 1,
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => showAsset(context, asset, false, null),
               child: Container(
-                decoration: BoxDecoration(borderRadius: BorderRadius.circular(9), border: Border.all(color: chosen ? _C.ok : _C.line, width: chosen ? 3 : 1)),
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: _C.line)),
                 clipBehavior: Clip.antiAlias,
                 child: ColoredBox(color: _G.canvas, child: _Net('${asset['url']}', fit: BoxFit.cover)),
               ),
             ),
           ),
-          if (chosen)
-            Positioned(
-              right: 5,
-              top: 5,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(color: _C.ok, borderRadius: BorderRadius.circular(12)),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.check_rounded, size: 12, color: Colors.white),
-                  const SizedBox(width: 3),
-                  Text('Use'.tr, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.white)),
-                ]),
-              ),
-            ),
-          // What the AI read in it, big.
           Positioned(
-            left: 5,
-            top: 5,
-            child: InkWell(
-              onTap: () => showAsset(context, asset, !chosen, onTap),
+            left: 8,
+            top: 8,
+            child: IgnorePointer(
               child: Container(
-                width: 26,
-                height: 26,
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.9), shape: BoxShape.circle, border: Border.all(color: _C.line)),
                 child: const Icon(Icons.zoom_in_rounded, size: 16, color: _C.text),
               ),
@@ -1308,9 +1282,14 @@ Future<(List<_RunPhoto>, Map<int, String>)> _runPhotos(String runId) async {
   final run = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   final marker = '/runs/$runId/';
   final list = <_RunPhoto>[];
+  final assetPaths = {
+    for (final a in (run['assets'] as List? ?? const []))
+      if (a is Map) '${a['id']}': '${a['path']}',
+  };
   for (final p in (run['photos'] as List? ?? const [])) {
-    if (p is! Map || p['backdrop'] == true) continue;
-    final path = '${p['path']}'.replaceAll('\\', '/');
+    if (p is! Map) continue;
+    // A banner the director used is a slide's photo too: shown as the website has it, not blurred.
+    final path = '${p['backdrop'] == true ? assetPaths['${p['asset']}'] ?? p['path'] : p['path']}'.replaceAll('\\', '/');
     final at = path.indexOf(marker);
     if (at < 0) continue;
     list.add((id: '${p['id']}', url: '/files/$runId/${path.substring(at + marker.length)}', note: '${p['note'] ?? ''}', cutout: p['cutout'] == true, asset: '${p['asset'] ?? ''}'));
@@ -1480,7 +1459,12 @@ class _GimpState extends State<_Gimp> {
                   onLayerTap: tapLayer,
                   say: _pointerOf(widget.view, widget.busy) == null ? null : widget.view.said[_pointerOf(widget.view, widget.busy)!.key]?.event.text.split('\n').first,
                   stamp: _stampOf(s, roundShown, chosen != null),
-                  onOpen: image == null || image.isEmpty ? null : () => showBig(context, NetworkImage(Api.fileUrl(image)), caption: 'Slide {n}'.trf({'n': s.n})),
+                  onOpen: image == null || image.isEmpty
+                      ? null
+                      : () {
+                          void large() => showBig(context, NetworkImage(Api.fileUrl(image)), caption: 'Slide {n}'.trf({'n': s.n}));
+                          flat ? openFlat(large) : large();
+                        },
                 ),
               ),
               SizedBox(
@@ -1616,15 +1600,74 @@ class _GimpState extends State<_Gimp> {
     }
   }
 
-  Future<void> editText(_Layer l) async {
-    final field = switch (l.name.toLowerCase()) {
-      'headline' => 'headline',
-      'body' => 'body',
-      'button text' => 'button',
-      'eyebrow' || 'label' => 'eyebrow',
-      _ => l.name.toLowerCase(),
-    };
-    final plan = (widget.view.plan?['slides'] as List?)?.whereType<Map>().where((x) => x['n'] == widget.slide.n).firstOrNull;
+  Map? get slidePlan => (widget.view.plan?['slides'] as List?)?.whereType<Map>().where((x) => x['n'] == widget.slide.n).firstOrNull;
+
+  // A slide drawn in HTML comes into GIMP as one flat 'Design' layer, with no text layers to click.
+  bool get flat {
+    final layers = xcf?.layers ?? const <_Layer>[];
+    return layers.isNotEmpty && !layers.any((l) => l.text);
+  }
+
+  Future<void> editText(_Layer l) => editField(switch (l.name.toLowerCase()) {
+        'headline' => 'headline',
+        'body' => 'body',
+        'button text' => 'button',
+        'eyebrow' || 'label' => 'eyebrow',
+        _ => l.name.toLowerCase(),
+      });
+
+  // A click on a flat slide: what can change on it, from its plan.
+  Future<void> openFlat(VoidCallback showLarge) async {
+    final plan = slidePlan;
+    final fields = [
+      for (final (field, label, icon) in [
+        ('eyebrow', 'Eyebrow'.tr, Icons.label_outline_rounded),
+        ('headline', 'Headline'.tr, Icons.title_rounded),
+        ('body', 'Body'.tr, Icons.notes_rounded),
+        ('button', 'Button'.tr, Icons.smart_button_outlined),
+      ])
+        if (field == 'headline' || '${plan?[field] ?? ''}'.trim().isNotEmpty) (field, label, icon, '${plan?[field] ?? ''}'),
+    ];
+    final ready = widget.canEdit;
+    final pick = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        titlePadding: EdgeInsets.zero,
+        title: _DialogHeader(
+          kicker: 'Slide {n}'.trf({'n': widget.slide.n.toString().padLeft(2, '0')}).toUpperCase(),
+          title: 'What do you want to change?'.tr,
+          text: ready ? 'The designer redraws the slide with your change.'.tr : 'You can change the slides once the carousel is ready and GIMP is free (pause the queue).'.tr,
+        ),
+        content: SizedBox(
+          width: 480,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            for (final (field, label, icon, value) in fields)
+              ListTile(
+                enabled: ready,
+                leading: Icon(icon),
+                title: Text(label),
+                subtitle: value.isEmpty ? null : Text(value, maxLines: 2, overflow: TextOverflow.ellipsis),
+                onTap: () => Navigator.pop(context, field),
+              ),
+            ListTile(enabled: ready, leading: const Icon(Icons.photo_library_outlined), title: Text('Photo'.tr), onTap: () => Navigator.pop(context, 'photo')),
+            ListTile(leading: const Icon(Icons.zoom_out_map_rounded), title: Text('See it large'.tr), onTap: () => Navigator.pop(context, 'large')),
+          ]),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel'.tr))],
+      ),
+    );
+    if (!mounted || pick == null) return;
+    if (pick == 'large') {
+      showLarge();
+    } else if (pick == 'photo') {
+      await pickPhoto();
+    } else {
+      await editField(pick);
+    }
+  }
+
+  Future<void> editField(String field) async {
+    final plan = slidePlan;
     final controller = TextEditingController(text: '${plan?[field] ?? ''}');
     final fieldLabel = switch (field) {
       'headline' => 'Headline'.tr,
@@ -2280,7 +2323,6 @@ class _Progress extends StatelessWidget {
     final now = v.error != null
         ? 'The run stopped'.tr
         : switch (step) {
-            0 when v.pickUntil != null => 'Your turn: pick the images the agents can use'.tr,
             0 => 'The analyst is reading your website'.tr,
             1 => 'The director is planning the story'.tr,
             2 when v.planUntil != null => 'Your turn: review the director\'s plan'.tr,
@@ -3182,11 +3224,10 @@ class _TeamChat extends StatelessWidget {
   Widget build(BuildContext context) {
     final messages = _chat(view);
     final times = {for (final l in view.lines) l.event.seq: l.event.at};
-    final channel = (view.business ?? 'carousel'.tr).toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-').replaceAll(RegExp(r'^-+|-+$'), '');
     final active = busy ? _agent(view.active ?? '') : null;
     final typing = active == null ? null : view.said[active.key]?.event;
     return _Panel(
-      title: '# ${channel.isEmpty ? 'carousel'.tr : channel}',
+      title: 'Team chat'.tr,
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
         Container(width: 7, height: 7, decoration: const BoxDecoration(color: _C.ok, shape: BoxShape.circle)),
         const SizedBox(width: 5),
@@ -3209,8 +3250,11 @@ class _TeamChat extends StatelessWidget {
             for (final a in _team)
               Expanded(
                 child: Tooltip(
-                  message: '${a.name.tr}: ${a.job.tr}\n${a.models.join(' · ')}',
-                  child: Column(children: [
+                  message: '${a.name.tr}: ${a.job.tr}\n${a.models.join(' · ')}\n${'Click to see how it works'.tr}',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _showAgent(context, a),
+                    child: Column(children: [
                     _Avatar(agent: a, working: active?.key == a.key, idle: (view.talks[a.key] ?? 0) == 0, size: 30),
                     const SizedBox(height: 4),
                     Text(a.name.split(' ').first.tr, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: active?.key == a.key ? FontWeight.w800 : FontWeight.w600, color: active?.key == a.key ? a.color : _C.muted)),
@@ -3218,6 +3262,7 @@ class _TeamChat extends StatelessWidget {
                     for (final m in a.models)
                       Text(m, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: mono(size: 8.5, color: m.startsWith('Muse') || m.startsWith('SAM') ? const Color(0xFF0866FF) : _C.faint, weight: FontWeight.w700)),
                   ]),
+                  ),
                 ),
               ),
           ]),
@@ -3500,6 +3545,129 @@ class _DialogHeader extends StatelessWidget {
           if (onClose != null) IconButton(tooltip: 'Close'.tr, onPressed: onClose, icon: const Icon(Icons.close_rounded, color: _C.muted)),
         ]),
       );
+}
+
+// One file through a link: opening several windows gets all but the first blocked.
+void _saveFile(String url) {
+  final a = web.HTMLAnchorElement()
+    ..href = url
+    ..download = '';
+  web.document.body!.append(a);
+  a.click();
+  a.remove();
+}
+
+// The carousel is ready: its slides, the images to download and the way to post them.
+void _showReady(BuildContext context, String runId, _View view) {
+  final slides = [for (final n in view.order) view.slides[n]!].where((s) => (s.url ?? '').isNotEmpty).toList();
+  showDialog<void>(
+    context: context,
+    builder: (context) => Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _DialogHeader(
+            kicker: 'READY'.tr,
+            title: 'Your carousel is ready'.tr,
+            text: 'Download the images and the caption, or post them from Lumi.'.tr,
+            onClose: () => Navigator.pop(context),
+          ),
+          SizedBox(
+            height: 210,
+            child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 24), children: [
+              for (final s in slides)
+                Padding(
+                  padding: const EdgeInsets.only(right: 10),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(10), child: AspectRatio(aspectRatio: 4 / 5, child: _Net(s.url!, fit: BoxFit.cover))),
+                ),
+            ]),
+          ),
+          if ((view.caption ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 14, 24, 0),
+              child: Text(view.caption!, maxLines: 3, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, color: _C.muted, height: 1.45)),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 18, 24, 22),
+            child: Wrap(spacing: 10, runSpacing: 10, alignment: WrapAlignment.end, children: [
+              OutlinedButton.icon(
+                onPressed: () => _saveFile(Api.fileUrl('/api/runs/$runId/download')),
+                icon: const Icon(Icons.download_rounded, size: 18),
+                label: Text('Download the images (ZIP)'.tr),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => web.window.open(lumiUrl, '_blank'),
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: Text('Post from Lumi'.tr),
+              ),
+              FilledButton.icon(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.check_rounded, size: 18),
+                label: Text('Confirm'.tr),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    ),
+  );
+}
+
+// One agent of the team, for the demo: what it does, how, and with which technology.
+void _showAgent(BuildContext context, _Agent a) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620),
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _DialogHeader(kicker: 'THE TEAM'.tr, title: a.name.tr, text: a.job.tr, onClose: () => Navigator.pop(context)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 6, 24, 0),
+              child: Text('How it works'.tr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: _C.text)),
+            ),
+            for (final (i, step) in a.how.indexed)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 10, 24, 0),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: a.color.withValues(alpha: 0.12), shape: BoxShape.circle),
+                    child: Text('${i + 1}', style: mono(size: 11, color: a.color, weight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(step.tr, style: const TextStyle(fontSize: 13.5, color: _C.text, height: 1.45))),
+                ]),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 4),
+              child: Text('Technology'.tr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: _C.text)),
+            ),
+            for (final (name, what) in a.tech)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: (name.startsWith('Muse') || name.startsWith('SAM') ? const Color(0xFF0866FF) : _C.muted).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(name, style: mono(size: 11, color: name.startsWith('Muse') || name.startsWith('SAM') ? const Color(0xFF0866FF) : _C.muted, weight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(child: Padding(padding: const EdgeInsets.only(top: 2), child: Text(what.tr, style: const TextStyle(fontSize: 13, color: _C.muted, height: 1.4)))),
+                ]),
+              ),
+            const SizedBox(height: 24),
+          ]),
+        ),
+      ),
+    ),
+  );
 }
 
 String _hostOf(String? url) => (Uri.tryParse(url ?? '')?.host ?? '').replaceFirst(RegExp(r'^www\.'), '');
@@ -3908,6 +4076,14 @@ class _PlanBoardState extends State<_PlanBoard> {
   Timer? tick;
   bool sent = false;
   String? error;
+  // The first change asks the server to wait for the owner's approval instead of the clock.
+  bool held = false;
+
+  void hold() {
+    if (held || !reviewing) return;
+    held = true;
+    Api.holdPlan(widget.runId).catchError((Object _) {});
+  }
 
   @override
   void initState() {
@@ -3982,6 +4158,8 @@ class _PlanBoardState extends State<_PlanBoard> {
     final left = widget.view.planUntil == null ? 0 : widget.view.planUntil!.difference(DateTime.now()).inSeconds.clamp(0, 999);
     final photoUrl = {for (final p in [...photos, ...choices]) p.id: p};
     final inUse = {for (final sl in slides) if (!removed.contains(sl['n'])) photoOf(sl)};
+    // Every image from the website: the run's photos first, then the ones it didn't pick.
+    final website = _websiteChoices(photos, widget.view.site);
     return _Panel(
       title: 'The director\'s plan'.tr,
       trailing: Text('${plan['format'] ?? ''}'.toUpperCase(), style: mono(size: 11, color: _colorOf('director'), weight: FontWeight.w700)),
@@ -3996,19 +4174,19 @@ class _PlanBoardState extends State<_PlanBoard> {
             Row(children: [
               Text('Photos from the website'.tr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
               const SizedBox(width: 8),
-              Text('{used} used · {found} found'.trf({'used': inUse.where((id) => id.isNotEmpty).length, 'found': photos.length}), style: mono(size: 11, color: _C.faint)),
+              Text('{used} used · {found} found'.trf({'used': inUse.where((id) => id.isNotEmpty).length, 'found': website.length}), style: mono(size: 11, color: _C.faint)),
             ]),
             const SizedBox(height: 8),
             SizedBox(
-              height: 74,
+              height: 125,
               child: ListView(scrollDirection: Axis.horizontal, children: [
-                for (final p in photos)
+                for (final p in website)
                   Padding(
-                    padding: const EdgeInsets.only(right: 6),
+                    padding: const EdgeInsets.only(right: 8),
                     child: Opacity(
-                      opacity: inUse.contains(p.id) ? 1 : 0.45,
+                      opacity: widget.excluded.contains(p.asset) ? 0.5 : 1,
                       child: SizedBox(
-                        width: 60,
+                        width: 100,
                         child: Stack(fit: StackFit.expand, children: [
                           _PhotoTile(
                             photo: p,
@@ -4016,7 +4194,12 @@ class _PlanBoardState extends State<_PlanBoard> {
                             onTap: () {
                               final asset = (widget.view.site?['assets'] as List?)?.whereType<Map>().where((a) => a['id'] == p.asset).firstOrNull;
                               showAsset(context, asset ?? {'url': p.url, 'kind': p.cutout ? 'cut out' : 'photo', 'description': p.note, 'id': p.asset}, widget.excluded.contains(p.asset),
-                                  reviewing && p.asset.isNotEmpty ? () => widget.onToggle(p.asset) : null);
+                                  reviewing && p.asset.isNotEmpty
+                                      ? () {
+                                          hold();
+                                          widget.onToggle(p.asset);
+                                        }
+                                      : null);
                             },
                           ),
                           if (widget.excluded.contains(p.asset)) const Positioned(right: 2, top: 2, child: Icon(Icons.block_rounded, size: 16, color: _C.bad)),
@@ -4038,9 +4221,18 @@ class _PlanBoardState extends State<_PlanBoard> {
                   editable: reviewing,
                   removed: removed.contains(sl['n']),
                   canRemove: slides.length - removed.length > 3,
-                  onPick: () => pick(sl['n'] as int),
-                  onEdit: (field, value) => (edits[sl['n'] as int] ??= {})[field] = value,
-                  onRemove: () => setState(() => removed.contains(sl['n']) ? removed.remove(sl['n']) : removed.add(sl['n'] as int)),
+                  onPick: () {
+                    hold();
+                    pick(sl['n'] as int);
+                  },
+                  onEdit: (field, value) {
+                    hold();
+                    (edits[sl['n'] as int] ??= {})[field] = value;
+                  },
+                  onRemove: () {
+                    hold();
+                    setState(() => removed.contains(sl['n']) ? removed.remove(sl['n']) : removed.add(sl['n'] as int));
+                  },
                 ),
             ]),
           ]),
@@ -4050,11 +4242,12 @@ class _PlanBoardState extends State<_PlanBoard> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             decoration: BoxDecoration(color: _C.violet.withValues(alpha: 0.06), border: const Border(top: BorderSide(color: _C.line))),
             child: Row(children: [
-              _Pill(text: 'Design starts in {time}'.trf({'time': '${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}'}), color: _C.violet, blink: true),
+              _Pill(text: held ? 'Waiting for your approval'.tr : 'Design starts in {time}'.trf({'time': '${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')}'}), color: _C.violet, blink: true),
               const SizedBox(width: 12),
               Expanded(
                 child: TextField(
                   controller: note,
+                  onChanged: (_) => hold(),
                   style: const TextStyle(fontSize: 13),
                   decoration: InputDecoration(
                     isDense: true,

@@ -55,6 +55,7 @@ export async function chooseFix(
         from === 'owner' ? `The business owner asks: ${issues.join('; ')}` : `The art director rejected it:\n- ${issues.join('\n- ')}`,
         requests.length ? `The art director's actions, every one to be done: ${describeRequests(requests)}.` : '',
         from === 'critic' && owner.length ? `The business owner asked, and it must be done (you may change the words for it): ${owner.join('; ')}` : '',
+        `Write the note in ${run.brief.language ?? 'English'}.`,
       ]
         .filter(Boolean)
         .join('\n'),

@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import { chatJson, imagePart, type ContentPart } from '../llm.js';
-import { hashtagList, type Plan, type Run, type SlidePlan } from '../run.js';
+import { hashtagList, type Photo, type Plan, type Run, type SlidePlan } from '../run.js';
 import { describeDirections } from '../db.js';
 import { DIRECTOR } from './prompts.js';
 
@@ -112,11 +112,38 @@ function usePhotos(run: Run, plan: Plan): void {
   const last = plan.slides[plan.slides.length - 1];
   if (empty.length > unused.length && empty.includes(last)) empty.splice(empty.indexOf(last), 1);
   for (const slide of empty) {
-    const photo = unused.shift() ?? run.photos[(slide.n - 1) % run.photos.length];
+    // The photo of what the slide names ("Moon Cool"), not the next one in the list.
+    const best = bestMatch(run, slide, unused);
+    if (best) unused.splice(unused.indexOf(best), 1);
+    const photo = best ?? unused.shift() ?? run.photos[(slide.n - 1) % run.photos.length];
     if (!photo) break;
     slide.photo = photo.id;
     slide.focus ??= { x: 0.5, y: 0.5 };
   }
+}
+
+const plain = (text: string) =>
+  text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4);
+
+// The unused photo whose website description shares the most words with the slide's text.
+export function bestMatch(run: Run, slide: SlidePlan, photos: Photo[]): Photo | undefined {
+  const words = new Set(plain(`${slide.headline} ${slide.body ?? ''}`));
+  let best: Photo | undefined;
+  let score = 0;
+  for (const photo of photos) {
+    const asset = run.assets.find((a) => a.id === photo.asset);
+    const hits = new Set(plain(`${asset?.description ?? ''} ${asset?.context ?? ''}`).filter((w) => words.has(w))).size;
+    if (hits > score) {
+      best = photo;
+      score = hits;
+    }
+  }
+  return best;
 }
 
 async function preview(file: string): Promise<string> {

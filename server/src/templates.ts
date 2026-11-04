@@ -6,6 +6,7 @@ import { SLIDE } from './config.js';
 import { contrast, cutsOut, luminance, paletteFor, type DesignSystem, type Layout } from './design.js';
 import type { Gimp } from './gimp.js';
 import { buildFromLayout } from './layout_render.js';
+import { designHtmlSlide } from './html_slide.js';
 import { slideLogo } from './logo.js';
 import type { Asset, Photo, Run, SlidePlan } from './run.js';
 
@@ -541,7 +542,52 @@ type Part = { kind: 'number' | 'eyebrow' | 'headline' | 'body' | 'swipe' | 'butt
 // Builds one slide from its template in the GIMP image already open (a blank slide).
 export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> {
   const { run, system, slide, photo } = input;
-  if (system.layout && !slide.fresh) {
+  // The reference imitated in HTML: every object it has, drawn; the slide comes into GIMP as
+  // one layer. Off with HTML_SLIDES=0; any failure falls back to the plan and the templates.
+  if (system.htmlRef && process.env.HTML_SLIDES !== '0' && run.plan) {
+    // Every slide in the same reference: a failed page is drawn once more before a template.
+    const plan = run.plan;
+    const reference = system.htmlRef;
+    const draw = () => designHtmlSlide({
+      run,
+      plan,
+      slide,
+      reference,
+      photo: photo && { path: photo.path, cutout: !!photo.cutout && !photo.matte, note: photo.note },
+      logo: run.logo?.path,
+      colors: run.brief.brandColors?.length ? run.brief.brandColors : [system.base, system.accent, system.ink],
+      critique: slide.critique,
+      master: slide.n === plan.slides[1]?.n ? undefined : system.htmlMaster,
+      decor: { backdrop: system.decor?.backdropFile, texture: system.decor?.textureFile, element: system.decor?.elementFile },
+    }).catch(() => undefined);
+    const made = (await draw()) ?? (await draw());
+    if (made) {
+      if (slide.n === plan.slides[1]?.n) system.htmlMaster = made.html;
+      await gimp.python(`_img = Gimp.get_images()[0]
+${LIB}
+for _old in [_l for _l in _img.get_layers() if _l.get_name() != 'Background']:
+    _img.remove_layer(_old)
+_image('Design', ${JSON.stringify(made.png)}, 0, 0, ${W}, ${H}, 0)
+Gimp.displays_flush()
+_result = True`);
+      return {
+        layout: slide.layout ?? 'photo_band',
+        ground: system.base,
+        ink: system.ink,
+        textBand: 'middle',
+        split: false,
+        shape: 'reference',
+        visible: { x1: 0, y1: 0, x2: W, y2: H },
+        text: { x1: 48, y1: 48, x2: W - 48, y2: H - 48 },
+        textScale: 1,
+        photoCropped: false,
+        align: system.align,
+        free: true,
+      };
+    }
+  }
+  // A reference the owner picked holds even when a slide starts over: they chose that look.
+  if (system.layout && (!slide.fresh || !!run.brief.reference)) {
     const built = await buildFromLayout(gimp, input, system.layout);
     if (built) return built;
   }

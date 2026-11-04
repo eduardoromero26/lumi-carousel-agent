@@ -28,6 +28,8 @@ import sharp from 'sharp';
 import { applyShotFixes, endOrder, fitBeats, inspectReel, readLook, renderReel, repairReel, validateReel, writeReel, writeReelDocs, type ShotAction, type Sound, type Timed } from './reel.js';
 import { findMusic, findSfx } from './music.js';
 import { recentReels } from './db.js';
+import { reference } from './references.js';
+import { pickReference } from './agents/style_picker.js';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -38,11 +40,9 @@ export async function runCarousel(run: Run): Promise<void> {
   await withGimp(run, async (gimp) => {
     if (run.brief.url && !run.site) await readWebsite(run);
     if (!run.photos.length && !run.site) throw new Error('No photos and no website to work with.');
-    await ownerPicksImages(run);
-
-
     const plan = await planCarousel(run);
     run.plan = plan;
+    productFirst(run, plan);
     run.emit('thought', 'director', `${plan.format ? `${plan.format} for a ${plan.business_type ?? 'business'}: ` : ''}${plan.concept}\n\n${plan.why}`, { data: plan });
     await ownerReviewsPlan(run, plan);
 
@@ -68,6 +68,7 @@ export async function runCarousel(run: Run): Promise<void> {
     // GIMP takes turns. The family is checked afterwards on the whole set.
     const built = new Map<number, Built>();
     const measured = new Map<number, string[]>();
+    const html = htmlSlides(run);
     const make = async (slide: SlidePlan, approved: string[]) => {
       run.emit('status', 'system', `Slide ${slide.n}: ${slide.headline}`, { slide: slide.n });
       // The cover sets the tone: it gets one more round than the others.
@@ -77,17 +78,44 @@ export async function runCarousel(run: Run): Promise<void> {
       return result.snapshot;
     };
     const master = plan.slides.length > 2 ? plan.slides[1] : undefined;
-    const reference = master ? [await make(master, [])] : [];
-    if (master) run.emit('status', 'system', `Slide ${master.n} is the master: the other slides follow it.`, { slide: master.n });
-    const results = await Promise.allSettled(plan.slides.filter((s) => s !== master).map((slide) => make(slide, reference)));
-    const failed = results.find((r) => r.status === 'rejected');
-    if (failed) throw failed.reason;
+    const buildAll = async () => {
+      const reference = master ? [await make(master, [])] : [];
+      if (master) run.emit('status', 'system', `Slide ${master.n} is the master: the other slides follow it.`, { slide: master.n });
+      const results = await Promise.allSettled(plan.slides.filter((s) => s !== master).map((slide) => make(slide, reference)));
+      const failed = results.find((r) => r.status === 'rejected');
+      if (failed) throw failed.reason;
+    };
+    await buildAll();
 
-    // The whole set on one contact sheet: one family, or which slides break it. When
-    // anything changed, the critic looks once more and that verdict is the set's score.
-    const moved = await unifySkeleton(run, gimp, plan, built, measured);
-    const adjusted = await reviewWholeSet(run, gimp, plan, built, measured);
-    if (moved + adjusted > 0) await reviewWholeSet(run, gimp, plan, built, measured, true);
+    if (html) {
+      // The reference is judged once the carousel is whole: under 6, the art director picks
+      // another reference from the library and the slides are drawn again, once.
+      await reviewWholeSet(run, gimp, plan, built, measured, true);
+      const first = run.styleRef;
+      if ((run.setScore ?? 10) < 6 && first?.by === 'agent') {
+        const next = await pickReference(run, plan, [first.id]).catch(() => undefined);
+        if (next) {
+          run.emit('thought', 'designer', `The set scored ${run.setScore}/10 against "${first.title}": I try another reference, "${next.ref.title}". ${next.why}`, { data: { url: run.fileUrl(next.ref.file) } });
+          system.htmlRef = next.ref.file;
+          system.htmlMaster = undefined;
+          run.styleRef = { id: next.ref.id, title: next.ref.title, by: 'agent' };
+          run.styleNotes = describeSystem(system);
+          for (const s of plan.slides) {
+            s.critique = undefined;
+            s.tweaks = undefined;
+          }
+          run.slides = [];
+          await buildAll();
+          await reviewWholeSet(run, gimp, plan, built, measured, true);
+        }
+      }
+    } else {
+      // The whole set on one contact sheet: one family, or which slides break it. When
+      // anything changed, the critic looks once more and that verdict is the set's score.
+      const moved = await unifySkeleton(run, gimp, plan, built, measured);
+      const adjusted = await reviewWholeSet(run, gimp, plan, built, measured);
+      if (moved + adjusted > 0) await reviewWholeSet(run, gimp, plan, built, measured, true);
+    }
 
     run.status = 'done';
     run.syncCost();
@@ -99,41 +127,50 @@ export async function runCarousel(run: Run): Promise<void> {
   });
 }
 
-// From Create, the analyst's images wait for the owner a moment: what they leave out never
-// reaches the director. Nothing in that time and the director starts with all of them.
-const PICK_WAIT_MS = Number(process.env.PICK_WAIT_S ?? 120) * 1000;
+// A business that sells a product shows it: the director put Luuna's ambassadors (athletes
+// with no mattress) on the hook and the close of a mattress store (689f6bdd), against its
+// own rule. Photos of people without the product stay only on one proof slide; the other
+// slides take free product photos, the ones that name what the business sells first.
+// Slides drawn in HTML after the carousel's reference (html_slide.ts).
+function htmlSlides(run: Run): boolean {
+  return !!run.system?.htmlRef && process.env.HTML_SLIDES !== '0';
+}
 
-async function ownerPicksImages(run: Run): Promise<void> {
-  if (!run.interactive || !run.photos.length) return;
-  run.emit('status', 'analyst', `Your turn: pick the images that must be on the slides and confirm. The director starts in ${Math.round(PICK_WAIT_MS / 1000)} s.`, {
-    data: { pickWait: { until: Date.now() + PICK_WAIT_MS } },
-  });
-  const pick = await new Promise<{ include?: string[]; exclude?: string[] } | null>((resolve) => {
-    run.imagePick = resolve;
-    setTimeout(() => resolve(null), PICK_WAIT_MS);
-  });
-  run.imagePick = undefined;
-  const chosen = new Set(pick?.include ?? []);
-  const out = new Set(pick?.exclude ?? []);
-  if (chosen.size) {
-    // Only the owner's images (and the owner's own uploads): any image of the website, even
-    // one the analyst passed over, becomes a photo.
-    const kept = run.photos.filter((p) => !p.asset || chosen.has(p.asset));
-    for (const id of chosen) {
-      if (kept.some((p) => p.asset === id)) continue;
-      const asset = run.assets.find((a) => a.id === id && a.kind !== 'logo' && a.kind !== 'icon');
-      if (asset) kept.push(await photoFromAsset(run, asset));
+export function productFirst(run: Run, plan: Plan): void {
+  const assetOf = (id: string | null) => run.assets.find((a) => a.id === run.photos.find((p) => p.id === id)?.asset);
+  const products = run.photos.filter((p) => !p.backdrop && !p.cutout && run.assets.find((a) => a.id === p.asset)?.kind === 'product');
+  if (products.length < 3) return;
+  const words = `${plan.business_type ?? ''}`
+    .toLowerCase()
+    .split(/[^a-z\u00e0-\u00ff]+/)
+    .filter((w) => w.length >= 4 && !['store', 'shop', 'tienda', 'with', 'online', 'brand', 'company'].includes(w))
+    .map((w) => w.replace(/(es|s)$/, ''));
+  const names = (text: string | undefined) => words.some((w) => (text ?? '').toLowerCase().includes(w));
+  let proofKept = false;
+  const swapped: number[] = [];
+  for (const slide of plan.slides) {
+    const asset = assetOf(slide.photo);
+    if (!slide.photo || asset?.kind !== 'people' || names(asset.description)) continue;
+    if (slide.role === 'proof' && !proofKept) {
+      proofKept = true;
+      continue;
     }
-    run.photos = kept;
-  } else if (out.size) run.photos = run.photos.filter((p) => !(p.asset && out.has(p.asset)));
-  run.emit('status', 'analyst', chosen.size ? `You picked ${run.photos.length} ${run.photos.length === 1 ? 'image' : 'images'}: the director works only with them.` : out.size ? `You left out ${out.size}: the director works with the other ${run.photos.length}.` : 'No pick from you: the director starts with the images I chose.', {
-    data: { pickWait: { done: true } },
-  });
+    const used = new Set(plan.slides.map((s) => s.photo));
+    const free = products.filter((p) => !used.has(p.id));
+    const pick = free.find((p) => names(run.assets.find((a) => a.id === p.asset)?.description)) ?? free[0];
+    if (!pick) break;
+    slide.photo = pick.id;
+    swapped.push(slide.n);
+  }
+  if (swapped.length) {
+    run.emit('status', 'director', `${swapped.length === 1 ? 'Slide' : 'Slides'} ${swapped.join(', ')} showed people without the product: ${swapped.length === 1 ? 'it takes' : 'they take'} a product photo, as a store shows what it sells.`);
+  }
 }
 
 // From Create, the plan waits for the owner a moment: the words, the photo of each slide and
 // how many slides. Nothing in that time and the design starts on its own, as from the queue.
 const PLAN_WAIT_MS = Number(process.env.PLAN_WAIT_S ?? 90) * 1000;
+const PLAN_HOLD_MS = 10 * 60 * 1000;
 
 async function ownerReviewsPlan(run: Run, plan: Plan): Promise<void> {
   if (!run.interactive) return;
@@ -141,10 +178,21 @@ async function ownerReviewsPlan(run: Run, plan: Plan): Promise<void> {
     data: { planWait: { until: Date.now() + PLAN_WAIT_MS } },
   });
   const review = await new Promise<PlanReview | null>((resolve) => {
-    run.planReview = resolve;
-    setTimeout(() => resolve(null), PLAN_WAIT_MS);
+    let timer = setTimeout(() => resolve(null), PLAN_WAIT_MS);
+    run.planReview = (r) => {
+      clearTimeout(timer);
+      resolve(r);
+    };
+    // The owner started changing it: the design waits for their approval, not for the clock.
+    run.planHold = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => resolve(null), PLAN_HOLD_MS);
+      run.planHold = undefined;
+      run.emit('status', 'director', 'You are changing the plan: the design waits for your approval.', { data: { planWait: { until: Date.now() + PLAN_HOLD_MS } } });
+    };
   });
   run.planReview = undefined;
+  run.planHold = undefined;
   if (!review) {
     run.emit('status', 'director', 'No changes from you: the design starts.', { data: { planWait: { done: true } } });
     return;
@@ -247,11 +295,17 @@ export async function editSlide(run: Run, n: number, feedback: string): Promise<
       }
       if (photo) slide.photo = photo.id;
     }
+    // The owner's exact words go on in code too: an HTML slide is drawn from the plan.
+    const words = ownerWords(feedback);
+    if (words) {
+      Object.assign(slide, words);
+      if (words.headline && slide.emphasis && !words.headline.toLowerCase().includes(slide.emphasis.toLowerCase())) slide.emphasis = undefined;
+    }
     run.emit('status', 'designer', `Editing slide ${n}: ${feedback}`, { slide: n });
     const others = await Promise.all(run.slides.filter((s) => s.n !== n).map(async (s) => (await readFile(path.join(run.dir, s.file))).toString('base64')));
     if (run.system && slide.layout) {
       // A template slide: the owner's changes become settings and words, and it is rebuilt.
-      await buildAndReview(run, gimp, plan, slide, others.slice(0, 2), { owner: [feedback], current: await slideThumb(path.join(run.dir, `slide-${n}.png`)) });
+      await buildAndReview(run, gimp, plan, slide, others.slice(0, 2), { owner: [feedback], text: words, current: await slideThumb(path.join(run.dir, `slide-${n}.png`)) });
       run.status = 'done';
       run.emit('done', 'system', `Slide ${n} updated`, { data: { caption: plan.caption, hashtags: plan.hashtags, edited: n } });
       return;
@@ -262,6 +316,14 @@ export async function editSlide(run: Run, n: number, feedback: string): Promise<
     run.status = 'done';
     run.emit('done', 'system', `Slide ${n} updated`, { data: { caption: plan.caption, hashtags: plan.hashtags, edited: n } });
   });
+}
+
+type OwnerWords = Partial<Pick<SlidePlan, 'headline' | 'body' | 'button' | 'eyebrow'>>;
+
+// 'Change the headline to exactly: "…"', as the room's editor sends it.
+export function ownerWords(feedback: string): OwnerWords | undefined {
+  const m = /^Change the (headline|body|button|eyebrow) to exactly: "([\s\S]*)"$/.exec(feedback.trim());
+  return m && m[2].trim() ? { [m[1]]: m[2].trim() } : undefined;
 }
 
 async function withGimp(run: Run, work: (gimp: Gimp) => Promise<void>): Promise<void> {
@@ -460,11 +522,14 @@ async function buildAndReview(
   plan: Plan,
   slide: SlidePlan,
   approved: string[],
-  opts: { owner?: string[]; extraRounds?: number; current?: string } = {},
+  opts: { owner?: string[]; extraRounds?: number; current?: string; text?: OwnerWords } = {},
 ): Promise<{ snapshot: string; built: Built; measured: string[] }> {
   const snapsDir = path.join(run.dir, 'snaps');
   await mkdir(snapsDir, { recursive: true });
   const owner = opts.owner ?? [];
+  // A slide drawn from a reference is one shot (an owner's change gets one round): the
+  // template fixes would only pull it back to a template. The set is judged at the end.
+  const html = htmlSlides(run);
   let issues = owner;
   // The critic's fixes in the contract's actions; the fixer does every one.
   let requests: FixRequest[] = [];
@@ -474,16 +539,19 @@ async function buildAndReview(
   type Round = { xcf: string; state: SlideState; built: Built; snapshot: string; rank: number; approved: boolean; measured: string[]; score: number };
   const rounds: Round[] = [];
   const templateIssues: string[] = [];
-  const maxRounds = config.maxRevisions + (opts.extraRounds ?? 0);
+  const maxRounds = html ? (owner.length ? 1 : 0) : config.maxRevisions + (opts.extraRounds ?? 0);
   // The owner's changes no setting can make are redone on every rebuild.
   let hands: string[] = [];
   for (let round = 0; round <= maxRounds; round++) {
     try {
       if (issues.length || requests.length) {
+        // An HTML slide is redrawn with what the critic (or the owner) said.
+        slide.critique = [...issues, ...owner, ...requests.map((r) => `${r.action}${r.why ? ` (${r.why})` : ''}`)].join('; ').slice(0, 900) || undefined;
         const fix = await chooseFix(run, plan, slide, built, issues, requests, snapshot || undefined, from, owner);
         slide.tweaks = fix.tweaks;
         if (fix.photo) slide.photo = fix.photo;
         if (fix.text) Object.assign(slide, fix.text);
+        if (opts.text) Object.assign(slide, opts.text);
         if (fix.hands.length) hands = fix.hands;
         noteTemplateIssues(run, slide.n, fix.unmet.map((a) => `${a} was asked for, but no other photo is free`), templateIssues);
         run.emit('thought', 'designer', describeFix(fix), { slide: slide.n, data: { tweaks: fix.tweaks, photo: fix.photo, text: fix.text, applied: fix.applied, byCode: fix.byCode } });
@@ -556,7 +624,7 @@ async function buildAndReview(
   const best = rounds.reduce((a, b) => (b.rank > a.rank ? b : a));
   // Under 5 after its rounds, a slide isn't repaired once more: it starts over from scratch
   // with another skeleton, the photo whole (no cutout, no reference layout), and is judged anew.
-  if (!best.approved && best.score < 5 && !slide.fresh && !owner.length && !run.stopRequested) {
+  if (!html && !best.approved && best.score < 5 && !slide.fresh && !owner.length && !run.stopRequested) {
     run.emit('status', 'system', `Slide ${slide.n} ended at ${best.score}/10: starting it over from scratch with another design.`, { slide: slide.n });
     slide.fresh = true;
     slide.tweaks = { band: 'split' };
@@ -768,7 +836,9 @@ async function unifySkeleton(run: Run, gimp: Gimp, plan: Plan, built: Map<number
 // With final, it only judges: the set's last word, after the fixes. Slides adjusted.
 async function reviewWholeSet(run: Run, gimp: Gimp, plan: Plan, built: Map<number, Built>, measuredBefore = new Map<number, string[]>(), final = false): Promise<number> {
   const files = run.slides.map((s) => ({ n: s.n, file: path.join(run.dir, s.file) }));
-  const review = await reviewSet(plan, files, run.styleNotes ?? '');
+  const ref = run.styleRef ? reference(run.styleRef.id) : undefined;
+  const review = await reviewSet(plan, files, run.styleNotes ?? '', ref ? { file: ref.file, title: ref.title } : undefined, run.brief.language ?? 'English');
+  run.setScore = review.score;
   const sheetFile = path.join(run.dir, 'snaps', `set-${Date.now()}.jpg`);
   await writeFile(sheetFile, review.sheet);
   const describe = (s: (typeof review.slides)[number]) =>

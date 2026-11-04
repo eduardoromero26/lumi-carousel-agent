@@ -95,6 +95,8 @@ export type SlidePlan = {
   fresh?: boolean;
   role: string;
   photo: string | null;
+  // What the critic said about the last attempt of an HTML slide, for the next one.
+  critique?: string;
   headline: string;
   body: string;
   visual: string;
@@ -161,8 +163,8 @@ export class Run {
   interactive = false;
   // While the plan waits for the owner: hands the owner's review to the pipeline.
   planReview?: (review: PlanReview | null) => void;
-  // While the analyst's images wait for the owner: the website images (asset ids) left out.
-  imagePick?: (pick: { include?: string[]; exclude?: string[] } | null) => void;
+  // Once the owner starts changing the plan: it waits for their approval.
+  planHold?: () => void;
   logo?: Asset;
   // White or light version of the logo, for dark backgrounds.
   logoLight?: Asset;
@@ -170,6 +172,10 @@ export class Run {
   // The carousel's visual system, and its description for the designer and critic.
   system?: DesignSystem;
   styleNotes?: string;
+  // The reference that styled the carousel: picked by the owner or by the art director.
+  styleRef?: { id: string; title: string; by: 'owner' | 'agent' };
+  // The last score the set critic gave the whole carousel.
+  setScore?: number;
   plan?: Plan;
   // templateIssues: what the critic found that no action of the fixer resolves.
   slides: { n: number; file: string; approved: boolean; rounds: number; templateIssues?: string[] }[] = [];
@@ -201,6 +207,7 @@ export class Run {
     run.logoLight = run.assets.find((a) => a.id === saved.logoLight);
     run.site = saved.site;
     run.styleNotes = saved.styleNotes;
+    run.styleRef = saved.styleRef;
     run.system = saved.system;
     run.plan = saved.plan;
     run.slides = saved.slides;
@@ -220,6 +227,7 @@ export class Run {
       logoLight: this.logoLight?.id,
       site: this.site,
       styleNotes: this.styleNotes,
+      styleRef: this.styleRef,
       system: this.system,
       plan: this.plan,
       slides: this.slides,

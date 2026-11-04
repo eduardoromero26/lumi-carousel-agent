@@ -123,17 +123,24 @@ class HomeShell extends StatefulWidget {
 }
 
 class _HomeShellState extends State<HomeShell> {
-  int tab = const {'feed': 1, 'queue': 2, 'live': 3}[Uri.base.queryParameters['view']] ?? 0;
+  int tab = const {'feed': 1, 'queue': 2, 'live': 3, 'line': 4}[Uri.base.queryParameters['view']] ?? 0;
 
   // Create is the normal view of a run; its edit view is Design it live.
   void watchEdit() {
     if (editRun.value != null && mounted) setState(() => tab = 3);
   }
 
+  void watchTab() {
+    final t = showTab.value;
+    if (t != null && mounted) setState(() => tab = t);
+    showTab.value = null;
+  }
+
   @override
   void initState() {
     super.initState();
     editRun.addListener(watchEdit);
+    showTab.addListener(watchTab);
     final id = Uri.base.queryParameters['run'];
     if (id != null && id.isNotEmpty) WidgetsBinding.instance.addPostFrameCallback((_) => openEditView(id));
   }
@@ -141,6 +148,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void dispose() {
     editRun.removeListener(watchEdit);
+    showTab.removeListener(watchTab);
     super.dispose();
   }
 
@@ -191,7 +199,9 @@ class _HomeShellState extends State<HomeShell> {
                   child: Row(children: [
                     tabButton(0, Icons.auto_awesome_outlined, 'Create'.tr),
                     tabButton(1, Icons.groups_outlined, 'Community'.tr),
-                    tabButton(2, Icons.view_kanban_outlined, 'Queue'.tr),
+                    tabButton(4, Icons.view_week_outlined, 'Line'.tr),
+                    // Queue is the owner's tool for batches, out of the menu: ?view=queue opens it.
+                    if (tab == 2) tabButton(2, Icons.view_kanban_outlined, 'Queue'.tr),
                   ]),
                 ),
               ),
@@ -204,6 +214,7 @@ class _HomeShellState extends State<HomeShell> {
               FeedPage(active: tab == 1),
               QueuePage(active: tab == 2),
               RoomPage(embedded: true, active: tab == 3, onExit: () => setState(() => tab = 0)),
+              LinePage(active: tab == 4),
             ]),
           ),
           if (tab != 3) const _PoweredBy(),
@@ -212,6 +223,9 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 }
+
+// Any screen can open a tab of the app (Create opens the line after adding to it).
+final showTab = ValueNotifier<int?>(null);
 
 const kodemexUrl = 'https://kodemex.com.mx';
 // Lumi, where the business posts and schedules what the agents made.
@@ -420,10 +434,16 @@ class _StudioPageState extends State<StudioPage> {
     super.dispose();
   }
 
+  // A note for the owner on the first screen (the website joined the line).
+  String? notice;
+
   Future<void> start() async {
-    setState(() => error = null);
+    setState(() {
+      error = null;
+      notice = null;
+    });
     try {
-      final id = await Api.createRun(
+      final made = await Api.createRun(
         url: website.text.trim(),
         business: business.text.trim(),
         language: language,
@@ -433,6 +453,17 @@ class _StudioPageState extends State<StudioPage> {
         reference: reference,
       );
       scaffold.currentState?.closeDrawer();
+      // Another carousel is being made: the website is in the community's line.
+      if (made.id == null) {
+        setState(() {
+          startStep = 0;
+          website.clear();
+          notice = 'Another carousel is being made: yours is #{n} in the line.'.trf({'n': made.place ?? 1});
+        });
+        showTab.value = 4;
+        return;
+      }
+      final id = made.id!;
       liveRun.value = id;
       // The agents' work is watched in the edit view; Create is ready for the next one.
       openEditView(id);
@@ -1784,6 +1815,7 @@ class _Start extends StatelessWidget {
                   ]),
                 ),
                 if (s.error != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(s.error!, style: const TextStyle(color: Palette.danger))),
+                if (s.notice != null) Padding(padding: const EdgeInsets.only(top: 10), child: Text(s.notice!, style: const TextStyle(color: Palette.primary, fontWeight: FontWeight.w600))),
                 const SizedBox(height: 14),
                 Row(mainAxisAlignment: MainAxisAlignment.center, children: [
                   Text('Slides in '.tr, style: const TextStyle(color: Palette.muted, fontSize: 13.5)),

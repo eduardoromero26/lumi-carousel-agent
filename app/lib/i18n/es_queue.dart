@@ -1,5 +1,11 @@
 // Spanish for the queue area. The key is the English text exactly as in the code.
 const Map<String, String> esQueue = {
+  // The community's line
+  'The line': 'La fila',
+  'Every website the community asked for while the agents were busy: one carousel after another.': 'Cada sitio que pidió la comunidad mientras los agentes estaban ocupados: un carrusel tras otro.',
+  'Nobody is in line: add a website in Create.': 'No hay nadie en la fila: agrega un sitio en Crear.',
+  'In line': 'En fila',
+  'Done': 'Completado',
   // The board
   'Board': 'Tablero',
   'Batches': 'Lotes',

@@ -101,9 +101,23 @@ export function queueItems(limit = 500): QueueItem[] {
   return (db.prepare(`SELECT * FROM queue ORDER BY id DESC LIMIT ?`).all(limit) as Row[]).map(itemOf);
 }
 
-export function nextWaiting(): QueueItem | undefined {
-  const row = db.prepare(`SELECT * FROM queue WHERE status = 'waiting' ORDER BY id LIMIT 1`).get() as Row | undefined;
+// The community's line: websites added from Create while another carousel was being made.
+export const COMMUNITY = 'Community';
+
+export function nextWaiting(batch?: string): QueueItem | undefined {
+  const row = (
+    batch
+      ? db.prepare(`SELECT * FROM queue WHERE status = 'waiting' AND batch = ? ORDER BY id LIMIT 1`).get(batch)
+      : db.prepare(`SELECT * FROM queue WHERE status = 'waiting' ORDER BY id LIMIT 1`).get()
+  ) as Row | undefined;
   return row && itemOf(row);
+}
+
+// Its place in the community's line (1 = next).
+export function communityPlace(url: string): number {
+  const rows = db.prepare(`SELECT url FROM queue WHERE status = 'waiting' AND batch = ? ORDER BY id`).all(COMMUNITY) as { url: string }[];
+  const i = rows.findIndex((r) => r.url === url);
+  return i < 0 ? rows.length : i + 1;
 }
 
 export function isPaused(): boolean {

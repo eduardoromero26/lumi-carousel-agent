@@ -410,13 +410,105 @@ class _Stat extends StatelessWidget {
       );
 }
 
+// The community's line: what everyone asked for from Create while another carousel was
+// being made, in line, in progress and done. Public: no removing or stopping.
+class LinePage extends StatefulWidget {
+  const LinePage({required this.active, super.key});
+  final bool active;
+
+  @override
+  State<LinePage> createState() => _LinePageState();
+}
+
+class _LinePageState extends State<LinePage> {
+  Map<String, dynamic>? state;
+  String? error;
+  Timer? timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _poll();
+  }
+
+  @override
+  void didUpdateWidget(LinePage old) {
+    super.didUpdateWidget(old);
+    if (widget.active != old.active) _poll();
+  }
+
+  void _poll() {
+    timer?.cancel();
+    if (!widget.active) return;
+    load();
+    timer = Timer.periodic(const Duration(seconds: 5), (_) => load());
+  }
+
+  @override
+  void dispose() {
+    timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> load() async {
+    try {
+      final s = await Api.queue();
+      if (mounted) {
+        setState(() {
+          state = s;
+          error = null;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => error = '$e'.replaceFirst('Exception: ', ''));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ((state?['items'] as List?) ?? const []).cast<Map<String, dynamic>>().where((i) => i['batch'] == 'Community').toList();
+    return ColoredBox(
+      color: Palette.canvas,
+      child: ListView(padding: const EdgeInsets.all(16), children: [
+        Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1100),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('The line'.tr, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
+              const SizedBox(height: 4),
+              Text('Every website the community asked for while the agents were busy: one carousel after another.'.tr, style: const TextStyle(color: Palette.muted)),
+              const SizedBox(height: 16),
+              if (state == null && error == null) const Padding(padding: EdgeInsets.all(32), child: Center(child: CircularProgressIndicator())),
+              if (error != null)
+                Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(children: [
+                    Text(error!, style: const TextStyle(color: Palette.danger)),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(onPressed: load, icon: const Icon(Icons.refresh, size: 18), label: Text('Try again'.tr)),
+                  ]),
+                ),
+              if (state != null && items.isEmpty)
+                Padding(padding: const EdgeInsets.all(32), child: Center(child: Text('Nobody is in line: add a website in Create.'.tr, style: const TextStyle(color: Palette.faint)))),
+              if (state != null && items.isNotEmpty) _Board(items: items, simple: true),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+}
+
 // The queue as a kanban board: every website is a ticket that moves from waiting to in
 // progress to ready, or to the problems column when its run failed or was stopped.
 class _Board extends StatelessWidget {
-  const _Board({required this.items, required this.onRemove, required this.onStop});
+  const _Board({required this.items, this.onRemove, this.onStop, this.simple = false});
   final List<Map<String, dynamic>> items;
-  final ValueChanged<int> onRemove;
-  final ValueChanged<String> onStop;
+  // Null on the public line: nobody removes or stops someone else's carousel.
+  final ValueChanged<int>? onRemove;
+  final ValueChanged<String>? onStop;
+  // The community's line: in line, in progress, done.
+  final bool simple;
 
   // A column with hundreds of done tickets would bury the board: the newest ones show.
   static const shown = 30;
@@ -429,12 +521,18 @@ class _Board extends StatelessWidget {
       return list;
     }
 
-    final columns = [
-      ('Waiting'.tr, Palette.faint, of({'waiting'})),
-      ('In progress'.tr, Palette.primary, of({'running'})),
-      ('Ready to publish'.tr, const Color(0xFF0E8A6A), of({'done'}, newest: true)),
-      ('Needs attention'.tr, Palette.danger, of({'failed', 'stopped'}, newest: true)),
-    ];
+    final columns = simple
+        ? [
+            ('In line'.tr, Palette.faint, of({'waiting'})),
+            ('In progress'.tr, Palette.primary, of({'running'})),
+            ('Done'.tr, const Color(0xFF0E8A6A), of({'done'}, newest: true)),
+          ]
+        : [
+            ('Waiting'.tr, Palette.faint, of({'waiting'})),
+            ('In progress'.tr, Palette.primary, of({'running'})),
+            ('Ready to publish'.tr, const Color(0xFF0E8A6A), of({'done'}, newest: true)),
+            ('Needs attention'.tr, Palette.danger, of({'failed', 'stopped'}, newest: true)),
+          ];
     return LayoutBuilder(builder: (context, box) {
       // Wide: the four columns share the width. Narrow: they keep their width and scroll sideways.
       final wide = box.maxWidth >= 1000;
@@ -457,13 +555,13 @@ class _Board extends StatelessWidget {
 }
 
 class _Column extends StatelessWidget {
-  const _Column({required this.title, required this.color, required this.items, required this.shown, required this.onRemove, required this.onStop});
+  const _Column({required this.title, required this.color, required this.items, required this.shown, this.onRemove, this.onStop});
   final String title;
   final Color color;
   final List<Map<String, dynamic>> items;
   final int shown;
-  final ValueChanged<int> onRemove;
-  final ValueChanged<String> onStop;
+  final ValueChanged<int>? onRemove;
+  final ValueChanged<String>? onStop;
 
   @override
   Widget build(BuildContext context) {
@@ -499,12 +597,12 @@ class _Column extends StatelessWidget {
 }
 
 class _Ticket extends StatefulWidget {
-  const _Ticket({super.key, required this.item, required this.place, required this.onRemove, required this.onStop});
+  const _Ticket({super.key, required this.item, required this.place, this.onRemove, this.onStop});
   final Map<String, dynamic> item;
   // Its place in line, for a waiting ticket.
   final int? place;
-  final ValueChanged<int> onRemove;
-  final ValueChanged<String> onStop;
+  final ValueChanged<int>? onRemove;
+  final ValueChanged<String>? onStop;
 
   @override
   State<_Ticket> createState() => _TicketState();
@@ -567,10 +665,10 @@ class _TicketState extends State<_Ticket> with SingleTickerProviderStateMixin {
                 Text('#${item['id']}', style: mono(size: 11, color: Palette.faint, weight: FontWeight.w700)),
                 const SizedBox(width: 6),
                 Expanded(child: Text(host, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5))),
-                if (status == 'waiting')
-                  IconButton(tooltip: 'Remove'.tr, visualDensity: VisualDensity.compact, iconSize: 16, onPressed: () => widget.onRemove(item['id'] as int), icon: const Icon(Icons.close, color: Palette.faint)),
-                if (status == 'running' && runId != null)
-                  IconButton(tooltip: 'Stop this run'.tr, visualDensity: VisualDensity.compact, iconSize: 17, onPressed: () => widget.onStop(runId), icon: const Icon(Icons.stop_circle_outlined, color: Palette.danger)),
+                if (status == 'waiting' && widget.onRemove != null)
+                  IconButton(tooltip: 'Remove'.tr, visualDensity: VisualDensity.compact, iconSize: 16, onPressed: () => widget.onRemove!(item['id'] as int), icon: const Icon(Icons.close, color: Palette.faint)),
+                if (status == 'running' && runId != null && widget.onStop != null)
+                  IconButton(tooltip: 'Stop this run'.tr, visualDensity: VisualDensity.compact, iconSize: 17, onPressed: () => widget.onStop!(runId), icon: const Icon(Icons.stop_circle_outlined, color: Palette.danger)),
               ]),
               const SizedBox(height: 4),
               Text('${item['batch'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5, color: Palette.faint)),

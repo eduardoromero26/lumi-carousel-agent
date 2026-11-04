@@ -44,7 +44,8 @@ List<String> hashtagsOf(dynamic raw) => raw is List
 class Api {
   static String fileUrl(String path) => '$apiUrl$path';
 
-  static Future<String> createRun({
+  // The run's id, or its place in the community's line when another carousel is being made.
+  static Future<({String? id, int? place})> createRun({
     String business = '',
     String url = '',
     required String language,
@@ -69,8 +70,9 @@ class Api {
       }),
     );
     final body = jsonDecode(res.body) as Map<String, dynamic>;
+    if (res.statusCode == 202 && body['queued'] == true) return (id: null, place: body['place'] as int?);
     if (res.statusCode != 201) throw Exception(body['error'] ?? 'Error ${res.statusCode}');
-    return body['id'] as String;
+    return (id: body['id'] as String, place: null);
   }
 
   static Future<void> editSlide(String runId, int n, String feedback) async {

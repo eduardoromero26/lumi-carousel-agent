@@ -4,6 +4,8 @@ const Map<String, String> esMain = {
   'Create': 'Crear',
   'Feed': 'Feed',
   'Community': 'Comunidad',
+  'Line': 'Fila',
+  'Another carousel is being made: yours is #{n} in the line.': 'Hay otro carrusel en marcha: el tuyo es el #{n} en la fila.',
   'Post from Lumi': 'Publicar desde Lumi',
   'Open source · Powered by ': 'Código abierto · Hecho por ',
   'Close': 'Cerrar',

@@ -19,7 +19,7 @@ import { library } from './learned.js';
 import { backfillLibrary, libraryItems, libraryUrl } from './library.js';
 import { failureKinds } from './metrics.js';
 import { addReference, deleteReference, reference, referenceFromRun, references, referenceUrl, type Reference } from './references.js';
-import { batchReport, batchSummaries, enqueue, failuresReport, historyRows, isPaused, lessons, markFailed, markFinished, markRunning, nextWaiting, queueItems, removeWaiting, savedLists, setPaused, type QueueItem } from './queue.js';
+import { batchReport, batchSummaries, communityPlace, COMMUNITY, enqueue, failuresReport, historyRows, isPaused, lessons, markFailed, markFinished, markRunning, nextWaiting, normalizeUrl, queueItems, removeWaiting, savedLists, setPaused, type QueueItem } from './queue.js';
 
 Run.onSave = (run) => {
   try {
@@ -48,7 +48,6 @@ const server = http.createServer(async (req, res) => {
   try {
     // POST /api/runs {brief, photos}
     if (req.method === 'POST' && url.pathname === '/api/runs') {
-      if (busy) return json(res, 409, { error: 'Another carousel is being made. Wait for it to finish.' });
       const body = (await readJson(req)) as { brief: Brief; photos: PhotoUpload[] };
       if (!body.brief?.url && !body.brief?.business) return json(res, 400, { error: 'Add your website' });
       if (!body.brief.url && !body.brief.goal) return json(res, 400, { error: 'Without a website, tell us what the post should do' });
@@ -58,6 +57,13 @@ const server = http.createServer(async (req, res) => {
         return json(res, 400, { error: "Social media pages ask to log in, so the agents can only see a login wall. Use the business's own website (it is usually linked on its page)." });
       }
       if (body.brief.reference && !reference(body.brief.reference)) return json(res, 400, { error: 'That style is no longer in the gallery' });
+      // Another carousel is being made: this website joins the community's line instead.
+      if (busy) {
+        if (!body.brief.url) return json(res, 409, { error: 'Another carousel is being made. Wait for it to finish.' });
+        const url = normalizeUrl(body.brief.url) ?? body.brief.url;
+        enqueue([url], body.brief.language, COMMUNITY);
+        return json(res, 202, { queued: true, place: communityPlace(url) });
+      }
       const run = new Run(body.brief);
       // From Create: the owner reviews the plan before the design starts.
       run.interactive = true;
@@ -374,8 +380,9 @@ function release(): void {
 }
 
 async function pump(): Promise<void> {
-  if (busy || isPaused()) return;
-  const item = nextWaiting();
+  if (busy) return;
+  // The owner's batches wait while the queue is paused; the community's line always runs.
+  const item = isPaused() ? nextWaiting(COMMUNITY) : nextWaiting();
   if (!item) return;
   busy = true;
   try {

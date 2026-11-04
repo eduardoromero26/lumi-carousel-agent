@@ -141,12 +141,15 @@ export function brandName(run: Pick<Run, 'site' | 'brief'>): string {
 }
 
 export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLayout): Promise<Built | undefined> {
-  const { run, system, slide, photo } = input;
+  const { run, system, slide } = input;
   // A product poster: the product cut out on the reference's ground, never a banner. Only a
   // reference of cut-out subjects; a photo in a frame (a window, a card) keeps its template.
   // Only a poster the reader measured as one (two-tone ground or a giant letter, like Kauri):
   // other boxed references keep their templates, which are tested.
   const poster = plan.photo.mode === 'box' && system.composition === 'cutout' && (!!system.zones?.length || !!plan.ghost);
+  // A banner (text baked in) behind a full-bleed reference: the slide takes the plan on a plain
+  // ground instead of falling back to a template the owner didn't pick.
+  const photo = !poster && plan.photo.mode === 'full' && input.photo?.backdrop ? undefined : input.photo;
   // A slide without a photo (a call to action, a poster) takes the plan on a plain ground,
   // so the set keeps the reference's type; a product shot or a banner keeps its template.
   if (poster ? photo?.backdrop : plan.photo.mode !== 'full' || (photo && (photo.cutout || photo.backdrop))) return undefined;
@@ -176,8 +179,26 @@ export async function buildFromLayout(gimp: Gimp, input: SlideInput, plan: RefLa
     if (last) blocks.push({ role: 'cta', box: { x1: last.box.x1, y1: Math.min(0.86, last.box.y2 + 0.04), x2: Math.min(1, last.box.x1 + 0.5), y2: Math.min(0.9, last.box.y2 + 0.08) }, align: last.align, case: 'as_is', weight: 'bold', font: 'sans', tracking: 0.02, behindSubject: false, emphasis: 'none' });
   }
   const faceBox = faces && frame ? onSlide(faces, frame) : undefined;
-  // A text column that reaches a face narrows to end before it; too narrow to read, the
-  // reference doesn't fit this photo.
+  // Text over a face: first the text moves below the face (or above it), the reference's
+  // own boxes together, as the reference keeps its text under the face; only then a column
+  // narrows to end beside it.
+  const decor = [...layout.elements];
+  if (faceBox && blocks.some((b) => !b.behindSubject && overlap(px(b.box), faceBox))) {
+    const moving = blocks.filter((b) => !b.behindSubject && b.role !== 'signature');
+    const top = Math.min(...moving.map((b) => b.box.y1));
+    const bottom = Math.max(...moving.map((b) => b.box.y2));
+    const gap = 30 / H;
+    const below = faceBox.y2 / H + gap - top;
+    const above = faceBox.y1 / H - gap - bottom;
+    const dy = bottom + below <= 0.94 ? below : top + above >= 0.06 ? above : 0;
+    if (dy) {
+      const shift = (b: { x1: number; y1: number; x2: number; y2: number }) => ({ ...b, y1: b.y1 + dy, y2: b.y2 + dy });
+      // Panels and pills that sit with the text move with it.
+      const inBand = (b: { y1: number; y2: number }) => b.y2 > top - 0.02 && b.y1 < bottom + 0.02;
+      for (const [i, b] of blocks.entries()) if (moving.includes(b)) blocks[i] = { ...b, box: shift(b.box) };
+      for (const [i, e] of decor.entries()) if (inBand(e.box)) decor[i] = { ...e, box: shift(e.box) };
+    }
+  }
   if (faceBox) {
     for (const [i, b] of blocks.entries()) {
       const r = px(b.box);
@@ -302,7 +323,7 @@ _g.set_offsets(int(${(g.x1 + g.x2) / 2} - _g.get_width() / 2), int(${(g.y1 + g.y
   // down, keeping at least the reference's gap.
   type Item = { y: number; block?: LayoutBlock; element?: (typeof layout.elements)[number]; i: number };
   // A card the text sits on: the photo blurred behind it, in the ground the text was made for.
-  const panel = layout.elements.find((e) => e.type === 'panel');
+  const panel = decor.find((e) => e.type === 'panel');
   if (panel && frame && photo && !poster) {
     const r = px(panel.box);
     const file = path.join(dir, `s${slide.n}-panel.png`);
@@ -312,7 +333,7 @@ _g.set_offsets(int(${(g.x1 + g.x2) / 2} - _g.get_width() / 2), int(${(g.y1 + g.y
   }
   // The arrow says "swipe": the call to action's button says what to do instead.
   // On a poster, pills and panels without their words read as empty bars: only lines and circles.
-  const elements = layout.elements.filter((e) => e.type !== 'panel' && !(texts.cta && e.type === 'arrow_circle') && !(poster && e.type === 'pill'));
+  const elements = decor.filter((e) => e.type !== 'panel' && !(texts.cta && e.type === 'arrow_circle') && !(poster && e.type === 'pill'));
   const items: Item[] = [...blocks.map((block, i) => ({ y: block.box.y1, block, i })), ...elements.map((element, i) => ({ y: element.box.y1, element, i }))].sort((a, b) => a.y - b.y);
   code.push('_push = 0\n_prev = 0');
   const flow = (top: number, height: string) => `_y = ${top} + _push

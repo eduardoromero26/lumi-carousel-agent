@@ -541,7 +541,8 @@ type Part = { kind: 'number' | 'eyebrow' | 'headline' | 'body' | 'swipe' | 'butt
 // Builds one slide from its template in the GIMP image already open (a blank slide).
 export async function buildSlide(gimp: Gimp, input: SlideInput): Promise<Built> {
   const { run, system, slide, photo } = input;
-  if (system.layout && !slide.fresh) {
+  // A reference the owner picked holds even when a slide starts over: they chose that look.
+  if (system.layout && (!slide.fresh || !!run.brief.reference)) {
     const built = await buildFromLayout(gimp, input, system.layout);
     if (built) return built;
   }

@@ -1702,7 +1702,7 @@ class _Start extends StatelessWidget {
               child: Column(children: [
                 Image.asset('assets/mascot.png', width: 150, height: 150),
                 const SizedBox(height: 18),
-                const Text('Your AI agent team for carousels and reels',
+                const Text('Your AI marketing crew for carousels and reels',
                     textAlign: TextAlign.center, style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, letterSpacing: -0.8, height: 1.15)),
                 const SizedBox(height: 28),
                 // The search field: the website and the way on.

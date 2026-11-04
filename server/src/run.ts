@@ -162,7 +162,7 @@ export class Run {
   // While the plan waits for the owner: hands the owner's review to the pipeline.
   planReview?: (review: PlanReview | null) => void;
   // While the analyst's images wait for the owner: the website images (asset ids) left out.
-  imagePick?: (exclude: string[] | null) => void;
+  imagePick?: (pick: { include?: string[]; exclude?: string[] } | null) => void;
   logo?: Asset;
   // White or light version of the logo, for dark backgrounds.
   logoLight?: Asset;

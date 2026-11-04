@@ -101,23 +101,32 @@ export async function runCarousel(run: Run): Promise<void> {
 
 // From Create, the analyst's images wait for the owner a moment: what they leave out never
 // reaches the director. Nothing in that time and the director starts with all of them.
-const PICK_WAIT_MS = Number(process.env.PICK_WAIT_S ?? 60) * 1000;
+const PICK_WAIT_MS = Number(process.env.PICK_WAIT_S ?? 120) * 1000;
 
 async function ownerPicksImages(run: Run): Promise<void> {
   if (!run.interactive || !run.photos.length) return;
-  run.emit('status', 'analyst', `Your turn: open any image to see what I read in it, leave out the ones you don't want and confirm. The director starts in ${Math.round(PICK_WAIT_MS / 1000)} s.`, {
+  run.emit('status', 'analyst', `Your turn: pick the images that must be on the slides and confirm. The director starts in ${Math.round(PICK_WAIT_MS / 1000)} s.`, {
     data: { pickWait: { until: Date.now() + PICK_WAIT_MS } },
   });
-  const exclude = await new Promise<string[] | null>((resolve) => {
+  const pick = await new Promise<{ include?: string[]; exclude?: string[] } | null>((resolve) => {
     run.imagePick = resolve;
     setTimeout(() => resolve(null), PICK_WAIT_MS);
   });
   run.imagePick = undefined;
-  const out = new Set(exclude ?? []);
-  const before = run.photos.length;
-  if (out.size) run.photos = run.photos.filter((p) => !(p.asset && out.has(p.asset)));
-  const left = before - run.photos.length;
-  run.emit('status', 'analyst', left ? `You left out ${left} ${left === 1 ? 'image' : 'images'}: the director works with the other ${run.photos.length}.` : 'All the images stay: the director starts.', {
+  const chosen = new Set(pick?.include ?? []);
+  const out = new Set(pick?.exclude ?? []);
+  if (chosen.size) {
+    // Only the owner's images (and the owner's own uploads): any image of the website, even
+    // one the analyst passed over, becomes a photo.
+    const kept = run.photos.filter((p) => !p.asset || chosen.has(p.asset));
+    for (const id of chosen) {
+      if (kept.some((p) => p.asset === id)) continue;
+      const asset = run.assets.find((a) => a.id === id && a.kind !== 'logo' && a.kind !== 'icon');
+      if (asset) kept.push(await photoFromAsset(run, asset));
+    }
+    run.photos = kept;
+  } else if (out.size) run.photos = run.photos.filter((p) => !(p.asset && out.has(p.asset)));
+  run.emit('status', 'analyst', chosen.size ? `You picked ${run.photos.length} ${run.photos.length === 1 ? 'image' : 'images'}: the director works only with them.` : out.size ? `You left out ${out.size}: the director works with the other ${run.photos.length}.` : 'No pick from you: the director starts with the images I chose.', {
     data: { pickWait: { done: true } },
   });
 }

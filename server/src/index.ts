@@ -201,8 +201,9 @@ const server = http.createServer(async (req, res) => {
     // POST /api/runs/:id/images {exclude}: the website images the owner leaves out, while they wait
     if (req.method === 'POST' && parts[3] === 'images') {
       if (!run?.imagePick) return json(res, 409, { error: 'The director has already started with the images.' });
-      const { exclude } = (await readJson(req)) as { exclude?: unknown };
-      run.imagePick(Array.isArray(exclude) ? exclude.filter((x): x is string => typeof x === 'string') : []);
+      const { include, exclude } = (await readJson(req)) as { include?: unknown; exclude?: unknown };
+      const ids = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+      run.imagePick({ include: ids(include), exclude: ids(exclude) });
       return json(res, 202, run.summary());
     }
 

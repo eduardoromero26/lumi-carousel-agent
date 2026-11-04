@@ -1694,6 +1694,7 @@ class _Start extends StatelessWidget {
         body: Stack(children: [
           // Behind the promise, what the agents already made, moving.
           const Positioned.fill(child: _HeroWall()),
+          const Positioned(top: 18, left: 16, right: 16, child: Center(child: _LiveBanner())),
           Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
@@ -1803,6 +1804,110 @@ class _Start extends StatelessWidget {
 
 // The home's background: slides the agents made, on a tilted wall whose columns drift up
 // and down, faded in the middle so the promise and the field read on top.
+// The way into the room from the first screen: the run the agents are making now, or the
+// newest carousel as a replay. Hidden when there is neither.
+class _LiveBanner extends StatefulWidget {
+  const _LiveBanner();
+
+  @override
+  State<_LiveBanner> createState() => _LiveBannerState();
+}
+
+class _LiveBannerState extends State<_LiveBanner> with SingleTickerProviderStateMixin {
+  late final pulse = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat(reverse: true);
+  Timer? poll;
+  String? liveId;
+  String liveHost = '';
+  String? replayId;
+  String replayName = '';
+
+  @override
+  void initState() {
+    super.initState();
+    check();
+    poll = Timer.periodic(const Duration(seconds: 8), (_) => check());
+  }
+
+  @override
+  void dispose() {
+    poll?.cancel();
+    pulse.dispose();
+    super.dispose();
+  }
+
+  Future<void> check() async {
+    try {
+      final q = await Api.queue();
+      final id = (q['current'] ?? q['running']) as String?;
+      final item = ((q['items'] as List?) ?? const []).whereType<Map>().where((i) => i['runId'] == id).firstOrNull;
+      final host = (Uri.tryParse('${item?['url'] ?? ''}')?.host ?? '').replaceFirst(RegExp(r'^www\.'), '');
+      if (replayId == null && id == null) {
+        final feed = await Api.feed();
+        if (feed.isNotEmpty && mounted) {
+          setState(() {
+            replayId = feed.first['id'] as String?;
+            replayName = '${feed.first['business'] ?? ''}';
+          });
+        }
+      }
+      if (mounted) {
+        setState(() {
+          liveId = id;
+          liveHost = host;
+        });
+      }
+    } catch (_) {
+      // The server is down: the first screen still works, only the banner hides.
+      if (mounted) setState(() => liveId = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final live = liveId != null;
+    final target = liveId ?? replayId;
+    if (target == null) return const SizedBox.shrink();
+    final color = live ? Palette.danger : Palette.primary;
+    final text = live
+        ? 'The agents are designing ${liveHost.isEmpty ? 'a carousel' : liveHost} right now'
+        : 'See how the agents designed ${replayName.isEmpty ? 'a carousel' : replayName}, step by step';
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 680),
+      child: Material(
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999), side: BorderSide(color: color.withValues(alpha: 0.35))),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => openEditView(target),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              FadeTransition(
+                opacity: live ? Tween(begin: 0.35, end: 1.0).animate(pulse) : const AlwaysStoppedAnimation(1),
+                child: Container(width: 9, height: 9, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+              ),
+              const SizedBox(width: 8),
+              Text(live ? 'LIVE' : 'REPLAY', style: mono(size: 11, color: color, weight: FontWeight.w800, spacing: 0.6)),
+              const SizedBox(width: 10),
+              Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Palette.ink))),
+              const SizedBox(width: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(999)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(live ? 'Watch it live' : 'Watch a replay', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white)),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_forward_rounded, size: 16, color: Colors.white),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _HeroWall extends StatefulWidget {
   const _HeroWall();
 

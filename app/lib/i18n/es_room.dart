@@ -140,6 +140,9 @@ const Map<String, String> esRoom = {
   'Change the button': 'Cambia el botón',
   'Change the eyebrow': 'Cambia la etiqueta',
   'Change the {field}': 'Cambia {field}',
+  'What do you want to change?': '¿Qué quieres cambiar?',
+  'The designer redraws the slide with your change.': 'El diseñador vuelve a dibujar la lámina con tu cambio.',
+  'See it large': 'Verla en grande',
   'The designer rebuilds the slide in GIMP with your words, exactly as you write them.':
       'El diseñador rehace la lámina en GIMP con tus palabras, tal como las escribas.',
   'Cancel': 'Cancelar',

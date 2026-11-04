@@ -1454,7 +1454,12 @@ class _GimpState extends State<_Gimp> {
                   onLayerTap: tapLayer,
                   say: _pointerOf(widget.view, widget.busy) == null ? null : widget.view.said[_pointerOf(widget.view, widget.busy)!.key]?.event.text.split('\n').first,
                   stamp: _stampOf(s, roundShown, chosen != null),
-                  onOpen: image == null || image.isEmpty ? null : () => showBig(context, NetworkImage(Api.fileUrl(image)), caption: 'Slide {n}'.trf({'n': s.n})),
+                  onOpen: image == null || image.isEmpty
+                      ? null
+                      : () {
+                          void large() => showBig(context, NetworkImage(Api.fileUrl(image)), caption: 'Slide {n}'.trf({'n': s.n}));
+                          flat ? openFlat(large) : large();
+                        },
                 ),
               ),
               SizedBox(
@@ -1590,15 +1595,74 @@ class _GimpState extends State<_Gimp> {
     }
   }
 
-  Future<void> editText(_Layer l) async {
-    final field = switch (l.name.toLowerCase()) {
-      'headline' => 'headline',
-      'body' => 'body',
-      'button text' => 'button',
-      'eyebrow' || 'label' => 'eyebrow',
-      _ => l.name.toLowerCase(),
-    };
-    final plan = (widget.view.plan?['slides'] as List?)?.whereType<Map>().where((x) => x['n'] == widget.slide.n).firstOrNull;
+  Map? get slidePlan => (widget.view.plan?['slides'] as List?)?.whereType<Map>().where((x) => x['n'] == widget.slide.n).firstOrNull;
+
+  // A slide drawn in HTML comes into GIMP as one flat 'Design' layer, with no text layers to click.
+  bool get flat {
+    final layers = xcf?.layers ?? const <_Layer>[];
+    return layers.isNotEmpty && !layers.any((l) => l.text);
+  }
+
+  Future<void> editText(_Layer l) => editField(switch (l.name.toLowerCase()) {
+        'headline' => 'headline',
+        'body' => 'body',
+        'button text' => 'button',
+        'eyebrow' || 'label' => 'eyebrow',
+        _ => l.name.toLowerCase(),
+      });
+
+  // A click on a flat slide: what can change on it, from its plan.
+  Future<void> openFlat(VoidCallback showLarge) async {
+    final plan = slidePlan;
+    final fields = [
+      for (final (field, label, icon) in [
+        ('eyebrow', 'Eyebrow'.tr, Icons.label_outline_rounded),
+        ('headline', 'Headline'.tr, Icons.title_rounded),
+        ('body', 'Body'.tr, Icons.notes_rounded),
+        ('button', 'Button'.tr, Icons.smart_button_outlined),
+      ])
+        if (field == 'headline' || '${plan?[field] ?? ''}'.trim().isNotEmpty) (field, label, icon, '${plan?[field] ?? ''}'),
+    ];
+    final ready = widget.canEdit;
+    final pick = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        titlePadding: EdgeInsets.zero,
+        title: _DialogHeader(
+          kicker: 'Slide {n}'.trf({'n': widget.slide.n.toString().padLeft(2, '0')}).toUpperCase(),
+          title: 'What do you want to change?'.tr,
+          text: ready ? 'The designer redraws the slide with your change.'.tr : 'You can change the slides once the carousel is ready and GIMP is free (pause the queue).'.tr,
+        ),
+        content: SizedBox(
+          width: 480,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            for (final (field, label, icon, value) in fields)
+              ListTile(
+                enabled: ready,
+                leading: Icon(icon),
+                title: Text(label),
+                subtitle: value.isEmpty ? null : Text(value, maxLines: 2, overflow: TextOverflow.ellipsis),
+                onTap: () => Navigator.pop(context, field),
+              ),
+            ListTile(enabled: ready, leading: const Icon(Icons.photo_library_outlined), title: Text('Photo'.tr), onTap: () => Navigator.pop(context, 'photo')),
+            ListTile(leading: const Icon(Icons.zoom_out_map_rounded), title: Text('See it large'.tr), onTap: () => Navigator.pop(context, 'large')),
+          ]),
+        ),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: Text('Cancel'.tr))],
+      ),
+    );
+    if (!mounted || pick == null) return;
+    if (pick == 'large') {
+      showLarge();
+    } else if (pick == 'photo') {
+      await pickPhoto();
+    } else {
+      await editField(pick);
+    }
+  }
+
+  Future<void> editField(String field) async {
+    final plan = slidePlan;
     final controller = TextEditingController(text: '${plan?[field] ?? ''}');
     final fieldLabel = switch (field) {
       'headline' => 'Headline'.tr,

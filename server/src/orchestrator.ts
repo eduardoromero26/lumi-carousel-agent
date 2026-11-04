@@ -295,11 +295,17 @@ export async function editSlide(run: Run, n: number, feedback: string): Promise<
       }
       if (photo) slide.photo = photo.id;
     }
+    // The owner's exact words go on in code too: an HTML slide is drawn from the plan.
+    const words = ownerWords(feedback);
+    if (words) {
+      Object.assign(slide, words);
+      if (words.headline && slide.emphasis && !words.headline.toLowerCase().includes(slide.emphasis.toLowerCase())) slide.emphasis = undefined;
+    }
     run.emit('status', 'designer', `Editing slide ${n}: ${feedback}`, { slide: n });
     const others = await Promise.all(run.slides.filter((s) => s.n !== n).map(async (s) => (await readFile(path.join(run.dir, s.file))).toString('base64')));
     if (run.system && slide.layout) {
       // A template slide: the owner's changes become settings and words, and it is rebuilt.
-      await buildAndReview(run, gimp, plan, slide, others.slice(0, 2), { owner: [feedback], current: await slideThumb(path.join(run.dir, `slide-${n}.png`)) });
+      await buildAndReview(run, gimp, plan, slide, others.slice(0, 2), { owner: [feedback], text: words, current: await slideThumb(path.join(run.dir, `slide-${n}.png`)) });
       run.status = 'done';
       run.emit('done', 'system', `Slide ${n} updated`, { data: { caption: plan.caption, hashtags: plan.hashtags, edited: n } });
       return;
@@ -310,6 +316,14 @@ export async function editSlide(run: Run, n: number, feedback: string): Promise<
     run.status = 'done';
     run.emit('done', 'system', `Slide ${n} updated`, { data: { caption: plan.caption, hashtags: plan.hashtags, edited: n } });
   });
+}
+
+type OwnerWords = Partial<Pick<SlidePlan, 'headline' | 'body' | 'button' | 'eyebrow'>>;
+
+// 'Change the headline to exactly: "…"', as the room's editor sends it.
+export function ownerWords(feedback: string): OwnerWords | undefined {
+  const m = /^Change the (headline|body|button|eyebrow) to exactly: "([\s\S]*)"$/.exec(feedback.trim());
+  return m && m[2].trim() ? { [m[1]]: m[2].trim() } : undefined;
 }
 
 async function withGimp(run: Run, work: (gimp: Gimp) => Promise<void>): Promise<void> {
@@ -508,7 +522,7 @@ async function buildAndReview(
   plan: Plan,
   slide: SlidePlan,
   approved: string[],
-  opts: { owner?: string[]; extraRounds?: number; current?: string } = {},
+  opts: { owner?: string[]; extraRounds?: number; current?: string; text?: OwnerWords } = {},
 ): Promise<{ snapshot: string; built: Built; measured: string[] }> {
   const snapsDir = path.join(run.dir, 'snaps');
   await mkdir(snapsDir, { recursive: true });
@@ -537,6 +551,7 @@ async function buildAndReview(
         slide.tweaks = fix.tweaks;
         if (fix.photo) slide.photo = fix.photo;
         if (fix.text) Object.assign(slide, fix.text);
+        if (opts.text) Object.assign(slide, opts.text);
         if (fix.hands.length) hands = fix.hands;
         noteTemplateIssues(run, slide.n, fix.unmet.map((a) => `${a} was asked for, but no other photo is free`), templateIssues);
         run.emit('thought', 'designer', describeFix(fix), { slide: slide.n, data: { tweaks: fix.tweaks, photo: fix.photo, text: fix.text, applied: fix.applied, byCode: fix.byCode } });

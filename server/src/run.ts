@@ -174,6 +174,8 @@ export class Run {
   styleNotes?: string;
   // The reference that styled the carousel: picked by the owner or by the art director.
   styleRef?: { id: string; title: string; by: 'owner' | 'agent' };
+  // The last score the set critic gave the whole carousel.
+  setScore?: number;
   plan?: Plan;
   // templateIssues: what the critic found that no action of the fixer resolves.
   slides: { n: number; file: string; approved: boolean; rounds: number; templateIssues?: string[] }[] = [];

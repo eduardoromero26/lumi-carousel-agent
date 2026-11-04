@@ -69,6 +69,7 @@ export async function reviewSlide(
           ? `The business owner asked for these changes, and they override the plan: ${ownerFeedback.join('; ')}. Check that every one was applied.`
           : '',
         ownerLessons(),
+        `Write every note in ${run.brief.language ?? 'English'}.`,
         'The slide to review:',
       ]
         .filter(Boolean)
@@ -136,7 +137,7 @@ export type SetReview = { consistent: boolean; score: number; slides: { n: numbe
 
 // The whole carousel on one contact sheet: the check a slide-by-slide review can't
 // make (is it one family?).
-export async function reviewSet(plan: Plan, slidePngs: { n: number; file: string }[], system: string, reference?: { file: string; title: string }): Promise<SetReview & { sheet: Buffer }> {
+export async function reviewSet(plan: Plan, slidePngs: { n: number; file: string }[], system: string, reference?: { file: string; title: string }, language = 'English'): Promise<SetReview & { sheet: Buffer }> {
   const cell = { width: 360, height: 450 };
   const tiles = await Promise.all(slidePngs.map(async (s) => sharp(await readFile(s.file)).resize(cell.width, cell.height).png().toBuffer()));
   const sheet = await sharp({ create: { width: cell.width * tiles.length + 16 * (tiles.length + 1), height: cell.height + 32, channels: 3, background: '#e9e9ec' } })
@@ -156,6 +157,7 @@ export async function reviewSet(plan: Plan, slidePngs: { n: number; file: string
             `Slides in order: ${plan.slides.map((s) => `${s.n} ${s.layout ?? s.role} "${s.headline}"${s.body ? ` / "${s.body}"` : ''}`).join('; ')}.`,
             `The visual system they must share: ${system}`,
             ownerLessons(),
+            `Write every note in ${language}.`,
             'The contact sheet, left to right:',
           ]
             .filter(Boolean)

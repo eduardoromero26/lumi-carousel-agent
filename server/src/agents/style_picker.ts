@@ -10,8 +10,8 @@ export type StylePick = { ref: Reference; business: string; cta: string; why: st
 // The owner no longer browses the gallery: the art director picks the style from the agency's
 // library, by the kind of business and the call to action, with what the owner's votes say
 // about each reference. Undefined when the library is empty or the pick fails.
-export async function pickReference(run: Run, plan: Plan): Promise<StylePick | undefined> {
-  const library = references();
+export async function pickReference(run: Run, plan: Plan, exclude: string[] = []): Promise<StylePick | undefined> {
+  const library = references().filter((r) => !exclude.includes(r.id));
   if (!library.length) return undefined;
   const close = plan.slides.at(-1);
   const kinds = new Map<string, number>();

@@ -29,6 +29,7 @@ import { applyShotFixes, endOrder, fitBeats, inspectReel, readLook, renderReel, 
 import { findMusic, findSfx } from './music.js';
 import { recentReels } from './db.js';
 import { reference } from './references.js';
+import { pickReference } from './agents/style_picker.js';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { promisify } from 'node:util';
@@ -67,6 +68,7 @@ export async function runCarousel(run: Run): Promise<void> {
     // GIMP takes turns. The family is checked afterwards on the whole set.
     const built = new Map<number, Built>();
     const measured = new Map<number, string[]>();
+    const html = htmlSlides(run);
     const make = async (slide: SlidePlan, approved: string[]) => {
       run.emit('status', 'system', `Slide ${slide.n}: ${slide.headline}`, { slide: slide.n });
       // The cover sets the tone: it gets one more round than the others.
@@ -76,17 +78,44 @@ export async function runCarousel(run: Run): Promise<void> {
       return result.snapshot;
     };
     const master = plan.slides.length > 2 ? plan.slides[1] : undefined;
-    const reference = master ? [await make(master, [])] : [];
-    if (master) run.emit('status', 'system', `Slide ${master.n} is the master: the other slides follow it.`, { slide: master.n });
-    const results = await Promise.allSettled(plan.slides.filter((s) => s !== master).map((slide) => make(slide, reference)));
-    const failed = results.find((r) => r.status === 'rejected');
-    if (failed) throw failed.reason;
+    const buildAll = async () => {
+      const reference = master ? [await make(master, [])] : [];
+      if (master) run.emit('status', 'system', `Slide ${master.n} is the master: the other slides follow it.`, { slide: master.n });
+      const results = await Promise.allSettled(plan.slides.filter((s) => s !== master).map((slide) => make(slide, reference)));
+      const failed = results.find((r) => r.status === 'rejected');
+      if (failed) throw failed.reason;
+    };
+    await buildAll();
 
-    // The whole set on one contact sheet: one family, or which slides break it. When
-    // anything changed, the critic looks once more and that verdict is the set's score.
-    const moved = await unifySkeleton(run, gimp, plan, built, measured);
-    const adjusted = await reviewWholeSet(run, gimp, plan, built, measured);
-    if (moved + adjusted > 0) await reviewWholeSet(run, gimp, plan, built, measured, true);
+    if (html) {
+      // The reference is judged once the carousel is whole: under 6, the art director picks
+      // another reference from the library and the slides are drawn again, once.
+      await reviewWholeSet(run, gimp, plan, built, measured, true);
+      const first = run.styleRef;
+      if ((run.setScore ?? 10) < 6 && first?.by === 'agent') {
+        const next = await pickReference(run, plan, [first.id]).catch(() => undefined);
+        if (next) {
+          run.emit('thought', 'designer', `The set scored ${run.setScore}/10 against "${first.title}": I try another reference, "${next.ref.title}". ${next.why}`, { data: { url: run.fileUrl(next.ref.file) } });
+          system.htmlRef = next.ref.file;
+          system.htmlMaster = undefined;
+          run.styleRef = { id: next.ref.id, title: next.ref.title, by: 'agent' };
+          run.styleNotes = describeSystem(system);
+          for (const s of plan.slides) {
+            s.critique = undefined;
+            s.tweaks = undefined;
+          }
+          run.slides = [];
+          await buildAll();
+          await reviewWholeSet(run, gimp, plan, built, measured, true);
+        }
+      }
+    } else {
+      // The whole set on one contact sheet: one family, or which slides break it. When
+      // anything changed, the critic looks once more and that verdict is the set's score.
+      const moved = await unifySkeleton(run, gimp, plan, built, measured);
+      const adjusted = await reviewWholeSet(run, gimp, plan, built, measured);
+      if (moved + adjusted > 0) await reviewWholeSet(run, gimp, plan, built, measured, true);
+    }
 
     run.status = 'done';
     run.syncCost();
@@ -102,6 +131,11 @@ export async function runCarousel(run: Run): Promise<void> {
 // with no mattress) on the hook and the close of a mattress store (689f6bdd), against its
 // own rule. Photos of people without the product stay only on one proof slide; the other
 // slides take free product photos, the ones that name what the business sells first.
+// Slides drawn in HTML after the carousel's reference (html_slide.ts).
+function htmlSlides(run: Run): boolean {
+  return !!run.system?.htmlRef && process.env.HTML_SLIDES !== '0';
+}
+
 export function productFirst(run: Run, plan: Plan): void {
   const assetOf = (id: string | null) => run.assets.find((a) => a.id === run.photos.find((p) => p.id === id)?.asset);
   const products = run.photos.filter((p) => !p.backdrop && !p.cutout && run.assets.find((a) => a.id === p.asset)?.kind === 'product');
@@ -479,6 +513,9 @@ async function buildAndReview(
   const snapsDir = path.join(run.dir, 'snaps');
   await mkdir(snapsDir, { recursive: true });
   const owner = opts.owner ?? [];
+  // A slide drawn from a reference is one shot (an owner's change gets one round): the
+  // template fixes would only pull it back to a template. The set is judged at the end.
+  const html = htmlSlides(run);
   let issues = owner;
   // The critic's fixes in the contract's actions; the fixer does every one.
   let requests: FixRequest[] = [];
@@ -488,7 +525,7 @@ async function buildAndReview(
   type Round = { xcf: string; state: SlideState; built: Built; snapshot: string; rank: number; approved: boolean; measured: string[]; score: number };
   const rounds: Round[] = [];
   const templateIssues: string[] = [];
-  const maxRounds = config.maxRevisions + (opts.extraRounds ?? 0);
+  const maxRounds = html ? (owner.length ? 1 : 0) : config.maxRevisions + (opts.extraRounds ?? 0);
   // The owner's changes no setting can make are redone on every rebuild.
   let hands: string[] = [];
   for (let round = 0; round <= maxRounds; round++) {
@@ -572,7 +609,7 @@ async function buildAndReview(
   const best = rounds.reduce((a, b) => (b.rank > a.rank ? b : a));
   // Under 5 after its rounds, a slide isn't repaired once more: it starts over from scratch
   // with another skeleton, the photo whole (no cutout, no reference layout), and is judged anew.
-  if (!best.approved && best.score < 5 && !slide.fresh && !owner.length && !run.stopRequested) {
+  if (!html && !best.approved && best.score < 5 && !slide.fresh && !owner.length && !run.stopRequested) {
     run.emit('status', 'system', `Slide ${slide.n} ended at ${best.score}/10: starting it over from scratch with another design.`, { slide: slide.n });
     slide.fresh = true;
     slide.tweaks = { band: 'split' };
@@ -785,7 +822,8 @@ async function unifySkeleton(run: Run, gimp: Gimp, plan: Plan, built: Map<number
 async function reviewWholeSet(run: Run, gimp: Gimp, plan: Plan, built: Map<number, Built>, measuredBefore = new Map<number, string[]>(), final = false): Promise<number> {
   const files = run.slides.map((s) => ({ n: s.n, file: path.join(run.dir, s.file) }));
   const ref = run.styleRef ? reference(run.styleRef.id) : undefined;
-  const review = await reviewSet(plan, files, run.styleNotes ?? '', ref ? { file: ref.file, title: ref.title } : undefined);
+  const review = await reviewSet(plan, files, run.styleNotes ?? '', ref ? { file: ref.file, title: ref.title } : undefined, run.brief.language ?? 'English');
+  run.setScore = review.score;
   const sheetFile = path.join(run.dir, 'snaps', `set-${Date.now()}.jpg`);
   await writeFile(sheetFile, review.sheet);
   const describe = (s: (typeof review.slides)[number]) =>

@@ -1282,9 +1282,14 @@ Future<(List<_RunPhoto>, Map<int, String>)> _runPhotos(String runId) async {
   final run = jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>;
   final marker = '/runs/$runId/';
   final list = <_RunPhoto>[];
+  final assetPaths = {
+    for (final a in (run['assets'] as List? ?? const []))
+      if (a is Map) '${a['id']}': '${a['path']}',
+  };
   for (final p in (run['photos'] as List? ?? const [])) {
-    if (p is! Map || p['backdrop'] == true) continue;
-    final path = '${p['path']}'.replaceAll('\\', '/');
+    if (p is! Map) continue;
+    // A banner the director used is a slide's photo too: shown as the website has it, not blurred.
+    final path = '${p['backdrop'] == true ? assetPaths['${p['asset']}'] ?? p['path'] : p['path']}'.replaceAll('\\', '/');
     final at = path.indexOf(marker);
     if (at < 0) continue;
     list.add((id: '${p['id']}', url: '/files/$runId/${path.substring(at + marker.length)}', note: '${p['note'] ?? ''}', cutout: p['cutout'] == true, asset: '${p['asset'] ?? ''}'));

@@ -48,27 +48,37 @@ class _G {
 }
 
 class _Agent {
-  const _Agent(this.key, this.name, this.job, this.models, this.icon, this.color);
+  const _Agent(this.key, this.name, this.job, this.models, this.icon, this.color, {this.how = const [], this.tech = const []});
   final String key;
   final String name;
   final String job;
   final List<String> models;
   final IconData icon;
   final Color color;
+  // For the demo: how it works, step by step, and what each technology does for it.
+  final List<String> how;
+  final List<(String, String)> tech;
 }
 
 const _team = [
-  _Agent('analyst', 'Analyst', 'Reads the business\'s website: finds its logo, colors and real photos, and cuts the products out of them.', ['Muse Spark', 'SAM 3.1'],
-      Icons.travel_explore_rounded, Color(0xFF2563EB)),
-  _Agent('director', 'Director', 'Decides what the carousel says: the story, slide by slide, with real facts from the website only.', ['Muse Spark'], Icons.movie_filter_outlined,
-      Color(0xFF6D4AFF)),
-  _Agent('art', 'Art director', 'Decides how it looks: fonts, colors and background, different from the last brands it designed.', ['Muse Wonder', 'Muse Image'],
-      Icons.palette_outlined, Color(0xFFDB2777)),
-  _Agent('designer', 'Designer', 'Builds every slide in GIMP, layer by layer, and the 30 s reel in HyperFrames.', ['GIMP 3', 'HyperFrames'], Icons.layers_outlined, Color(0xFF0E8A6A)),
-  _Agent('critic', 'Critic', 'Checks every slide like a strict agency boss and rejects what isn\'t ready to publish.', ['Muse Spark'], Icons.gavel_rounded,
-      Color(0xFFC2410C)),
-  _Agent('fixer', 'Fixer', 'Turns the critic\'s notes into changes and rebuilds the slide until it passes.', ['Muse Spark'], Icons.auto_fix_high_rounded,
-      Color(0xFFB45309)),
+  _Agent('analyst', 'Analyst', 'Reads the business\'s website: finds its logo, colors and real photos, and cuts the products out of them.', ['Muse Spark', 'SAM 3.1'], Icons.travel_explore_rounded, Color(0xFF2563EB),
+      how: ['Opens the website in a headless browser, on a computer and on a phone, and reads it as a visitor sees it.', 'Downloads every image at full size and sorts it: logo, products, people, places, banners.', 'Marks the photos whose product is cut by their own edge, and finds the subject and the faces in each photo.'],
+      tech: [('Muse Spark', 'vision: reads the website and sorts its images'), ('SAM 3.1', 'finds the subject and the faces, and cuts products out of their background'), ('Edge (headless)', 'renders the website like a visitor sees it')]),
+  _Agent('director', 'Director', 'Decides what the carousel says: the story, slide by slide, with real facts from the website only.', ['Muse Spark'], Icons.movie_filter_outlined, Color(0xFF6D4AFF),
+      how: ['Picks the topic most likely to bring new customers, and the format: catalog, offer, benefits, proof.', 'Writes the hook, each slide and the call to action from real facts only, never invented.', 'Gives each slide a real photo that shows what its words say; a store always shows what it sells.', 'You can change the words, the photos and the slides before the design starts.'],
+      tech: [('Muse Spark', 'plans the story, the slides and the caption')]),
+  _Agent('art', 'Art director', 'Decides how it looks: picks a style from the agency\'s library and sets the brand\'s colors and fonts.', ['Muse Wonder', 'Muse Image'], Icons.palette_outlined, Color(0xFFDB2777),
+      how: ['Picks a style from the agency\'s library by the kind of business and its call to action.', 'Learns from your votes which styles work, and avoids the ones you didn\'t like.', 'Sets the colors and fonts from the brand\'s own website and logo.', 'Has Muse Image paint the decor kit once per carousel: a texture, an element and a backdrop scene.'],
+      tech: [('Muse Wonder', 'art direction: the visual system of the carousel'), ('Muse Spark', 'picks the reference from the style library'), ('Muse Image', 'paints the decor kit, never products or people')]),
+  _Agent('designer', 'Designer', 'Draws every slide after the chosen style with the real photo, logo and words, and brings it into GIMP.', ['Muse Spark', 'GIMP 3'], Icons.layers_outlined, Color(0xFF0E8A6A),
+      how: ['Recreates the chosen reference as a slide in HTML and CSS: its composition, stickers, panels and type, with the brand\'s photo, logo, words and colors.', 'Slide 2 is the master: the other slides keep its system.', 'A headless browser renders it and it comes into GIMP as the slide\'s layer. Without a reference, it builds templates layer by layer in GIMP.', 'A rejected slide is drawn again with what the critic or you said.'],
+      tech: [('Muse Spark', 'writes each slide in HTML and CSS'), ('Edge (headless)', 'renders the slide at 1080×1350'), ('GIMP 3 over MCP', 'every slide as a real, editable file (.xcf)'), ('HyperFrames', 'the 30 s reel, when it is on')]),
+  _Agent('critic', 'Critic', 'Checks every slide like a strict agency boss and rejects what isn\'t ready to publish.', ['Muse Spark'], Icons.gavel_rounded, Color(0xFFC2410C),
+      how: ['Checks every slide with a yes/no checklist: brand, content, image, original photo, same faces, padding.', 'Code measures what a model can\'t be trusted with: overlaps, margins, faces and contrast.', 'At the end it judges the whole carousel against the reference; under 6/10, another reference is tried.', 'Your 👎 notes teach it what to reject next time.'],
+      tech: [('Muse Spark', 'vision: the checklist and the review of the whole set'), ('Code (lint)', 'geometry and contrast, measured on the layers')]),
+  _Agent('fixer', 'Fixer', 'Turns the critic\'s notes into changes and rebuilds the slide until it passes.', ['Muse Spark'], Icons.auto_fix_high_rounded, Color(0xFFB45309),
+      how: ['Turns the critic\'s notes into changes the slide can take: bigger text, another photo, text above the photo.', 'Keeps the best round, not the last one.', 'Makes the changes you ask for in plain words, from the team chat.'],
+      tech: [('Muse Spark', 'chooses the fix for each note')]),
 ];
 
 _Agent? _agent(String key) => _team.where((a) => a.key == key).firstOrNull;
@@ -3171,8 +3181,11 @@ class _TeamChat extends StatelessWidget {
             for (final a in _team)
               Expanded(
                 child: Tooltip(
-                  message: '${a.name.tr}: ${a.job.tr}\n${a.models.join(' · ')}',
-                  child: Column(children: [
+                  message: '${a.name.tr}: ${a.job.tr}\n${a.models.join(' · ')}\n${'Click to see how it works'.tr}',
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _showAgent(context, a),
+                    child: Column(children: [
                     _Avatar(agent: a, working: active?.key == a.key, idle: (view.talks[a.key] ?? 0) == 0, size: 30),
                     const SizedBox(height: 4),
                     Text(a.name.split(' ').first.tr, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10.5, fontWeight: active?.key == a.key ? FontWeight.w800 : FontWeight.w600, color: active?.key == a.key ? a.color : _C.muted)),
@@ -3180,6 +3193,7 @@ class _TeamChat extends StatelessWidget {
                     for (final m in a.models)
                       Text(m, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: mono(size: 8.5, color: m.startsWith('Muse') || m.startsWith('SAM') ? const Color(0xFF0866FF) : _C.faint, weight: FontWeight.w700)),
                   ]),
+                  ),
                 ),
               ),
           ]),
@@ -3525,6 +3539,63 @@ void _showReady(BuildContext context, String runId, _View view) {
             ]),
           ),
         ]),
+      ),
+    ),
+  );
+}
+
+// One agent of the team, for the demo: what it does, how, and with which technology.
+void _showAgent(BuildContext context, _Agent a) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => Dialog(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 620),
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _DialogHeader(kicker: 'THE TEAM'.tr, title: a.name.tr, text: a.job.tr, onClose: () => Navigator.pop(context)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 6, 24, 0),
+              child: Text('How it works'.tr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: _C.text)),
+            ),
+            for (final (i, step) in a.how.indexed)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 10, 24, 0),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(color: a.color.withValues(alpha: 0.12), shape: BoxShape.circle),
+                    child: Text('${i + 1}', style: mono(size: 11, color: a.color, weight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(step.tr, style: const TextStyle(fontSize: 13.5, color: _C.text, height: 1.45))),
+                ]),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 4),
+              child: Text('Technology'.tr, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14, color: _C.text)),
+            ),
+            for (final (name, what) in a.tech)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: (name.startsWith('Muse') || name.startsWith('SAM') ? const Color(0xFF0866FF) : _C.muted).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(name, style: mono(size: 11, color: name.startsWith('Muse') || name.startsWith('SAM') ? const Color(0xFF0866FF) : _C.muted, weight: FontWeight.w800)),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(child: Padding(padding: const EdgeInsets.only(top: 2), child: Text(what.tr, style: const TextStyle(fontSize: 13, color: _C.muted, height: 1.4)))),
+                ]),
+              ),
+            const SizedBox(height: 24),
+          ]),
+        ),
       ),
     ),
   );

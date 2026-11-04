@@ -37,6 +37,7 @@ import { promisify } from 'node:util';
 export async function runCarousel(run: Run): Promise<void> {
   run.status = 'running';
   run.slides = [];
+  run.startedAt = Date.now();
   await withGimp(run, async (gimp) => {
     if (run.brief.url && !run.site) await readWebsite(run);
     if (!run.photos.length && !run.site) throw new Error('No photos and no website to work with.');
@@ -92,10 +93,12 @@ export async function runCarousel(run: Run): Promise<void> {
       // another reference from the library and the slides are drawn again, once.
       await reviewWholeSet(run, gimp, plan, built, measured, true);
       const first = run.styleRef;
+      const outOfTime = overBudget(run, 0.7);
+      if (outOfTime && (run.setScore ?? 10) < 6) run.emit('status', 'system', `Past 70 % of the time budget: the carousel is delivered as it is (${run.setScore}/10).`);
       // It follows the reference but some slides have defects: only those are drawn again, with
       // their notes, in the same reference. Another reference only when the look is off.
       const named = (run.setReview?.slides ?? []).filter((s) => s.why);
-      if ((run.setScore ?? 10) < 6 && run.setReview?.followsReference !== false && named.length) {
+      if (!outOfTime && (run.setScore ?? 10) < 6 && run.setReview?.followsReference !== false && named.length) {
         run.emit('thought', 'designer', `The set follows "${first?.title ?? 'the reference'}" but ${named.length === 1 ? 'slide' : 'slides'} ${named.map((s) => s.n).join(', ')} ${named.length === 1 ? 'has' : 'have'} defects: I draw ${named.length === 1 ? 'it' : 'them'} again with the notes.`);
         await Promise.all(
           named.map(async (s) => {
@@ -108,7 +111,7 @@ export async function runCarousel(run: Run): Promise<void> {
           }),
         );
         await reviewWholeSet(run, gimp, plan, built, measured, true);
-      } else if ((run.setScore ?? 10) < 6 && first?.by === 'agent') {
+      } else if (!outOfTime && (run.setScore ?? 10) < 6 && first?.by === 'agent') {
         const next = await pickReference(run, plan, [first.id]).catch(() => undefined);
         if (next) {
           run.emit('thought', 'designer', `The set scored ${run.setScore}/10 against "${first.title}": I try another reference, "${next.ref.title}". ${next.why}`, { data: { url: run.fileUrl(next.ref.file) } });
@@ -144,9 +147,10 @@ export async function runCarousel(run: Run): Promise<void> {
     } else {
       // The whole set on one contact sheet: one family, or which slides break it. When
       // anything changed, the critic looks once more and that verdict is the set's score.
-      const moved = await unifySkeleton(run, gimp, plan, built, measured);
-      const adjusted = await reviewWholeSet(run, gimp, plan, built, measured);
-      if (moved + adjusted > 0) await reviewWholeSet(run, gimp, plan, built, measured, true);
+      const outOfTime = overBudget(run, 0.7);
+      const moved = outOfTime ? 0 : await unifySkeleton(run, gimp, plan, built, measured);
+      const adjusted = await reviewWholeSet(run, gimp, plan, built, measured, outOfTime);
+      if (!outOfTime && moved + adjusted > 0) await reviewWholeSet(run, gimp, plan, built, measured, true);
     }
 
     run.status = 'done';
@@ -163,6 +167,13 @@ export async function runCarousel(run: Run): Promise<void> {
 // with no mattress) on the hook and the close of a mattress store (689f6bdd), against its
 // own rule. Photos of people without the product stay only on one proof slide; the other
 // slides take free product photos, the ones that name what the business sells first.
+// A carousel has a time budget (RUN_BUDGET_MIN, 10 by default): past half of it no more
+// critic rounds, past 70 % it is delivered as it is. A run never takes 16 minutes again.
+const BUDGET_MS = Number(process.env.RUN_BUDGET_MIN ?? 10) * 60_000;
+export function overBudget(run: Run, share: number): boolean {
+  return Date.now() - run.startedAt > BUDGET_MS * share;
+}
+
 // Slides drawn in HTML after the carousel's reference (html_slide.ts).
 function htmlSlides(run: Run): boolean {
   return !!run.system?.htmlRef && process.env.HTML_SLIDES !== '0';
@@ -571,7 +582,9 @@ async function buildAndReview(
   type Round = { xcf: string; state: SlideState; built: Built; snapshot: string; rank: number; approved: boolean; measured: string[]; score: number };
   const rounds: Round[] = [];
   const templateIssues: string[] = [];
-  const maxRounds = html ? (owner.length ? 1 : 0) : config.maxRevisions + (opts.extraRounds ?? 0);
+  const late = !owner.length && overBudget(run, 0.5);
+  if (late && !html) run.emit('status', 'system', `Slide ${slide.n}: past half of the time budget, one round only.`, { slide: slide.n });
+  const maxRounds = html ? (owner.length ? 1 : 0) : late ? 0 : config.maxRevisions + (opts.extraRounds ?? 0);
   // The owner's changes no setting can make are redone on every rebuild.
   let hands: string[] = [];
   for (let round = 0; round <= maxRounds; round++) {

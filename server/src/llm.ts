@@ -22,6 +22,8 @@ export type ToolDef = {
   function: { name: string; description: string; parameters: Record<string, unknown> };
 };
 
+const MODEL_TIMEOUT_MS = Number(process.env.MODEL_TIMEOUT_S ?? 90) * 1000;
+
 export async function chat(messages: Message[], tools?: ToolDef[], model = config.modelId): Promise<{
   content: string | null;
   toolCalls: ToolCall[];
@@ -29,8 +31,10 @@ export async function chat(messages: Message[], tools?: ToolDef[], model = confi
   const body: Record<string, unknown> = { model, messages };
   if (tools?.length) body.tools = tools;
 
+  let timeouts = 0;
   for (let attempt = 0; ; attempt++) {
     // Slides run in parallel: a dropped connection or a rate limit is retried, not fatal.
+    // A call that hangs is cut at MODEL_TIMEOUT_S and tried once more, so a run never stalls.
     const res = await fetch(`${config.modelBaseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -38,7 +42,9 @@ export async function chat(messages: Message[], tools?: ToolDef[], model = confi
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
     }).catch((error: Error) => {
+      if (error.name === 'TimeoutError' && ++timeouts >= 2) throw new Error(`The model took over ${MODEL_TIMEOUT_MS / 1000} s twice`);
       if (attempt >= 4) throw error;
       return undefined;
     });

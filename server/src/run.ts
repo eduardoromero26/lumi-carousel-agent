@@ -174,6 +174,8 @@ export class Run {
   styleNotes?: string;
   // The reference that styled the carousel: picked by the owner or by the art director.
   styleRef?: { id: string; title: string; by: 'owner' | 'agent' };
+  // When the carousel started being made, for its time budget (RUN_BUDGET_MIN).
+  startedAt = Date.now();
   // The last score the set critic gave the whole carousel.
   setScore?: number;
   // What the set critic said last: whether it follows the reference, and each slide's notes.

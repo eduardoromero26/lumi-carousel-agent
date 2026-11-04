@@ -1,5 +1,14 @@
 # Contributing
 
+## History so far
+
+The project was built in nine days for the Meta Global AI Developer Hackathon 2026 (Oct 26 to
+Nov 4), by one person running several coding sessions on the same folder. Git starts on Nov 1 with a
+snapshot of the work since Oct 28 (`chore: snapshot before references and critic calibration`). Until the submission,
+commits landed straight on `main`, and some group a whole area, because the same files changed for
+several reasons at once. The history is left as it happened: it is not rewritten to look tidier.
+From the submission on, every change follows the rules below.
+
 ## Branches and pull requests
 
 - `main` is always green: every change lands through a pull request and CI.

@@ -34,8 +34,8 @@ editor, check their own work, take the client's revisions and deliver.
 These wait until after the hackathon:
 - Publishing to Facebook or Instagram (no Meta App, OAuth or Graph API). The owner downloads the
   carousel and publishes it.
-- The 30 s reel. It works, but a reel takes as long as a whole carousel and the demo needs many
-  runs, so it is off (`REELS=1` in `server/.env` turns it back on).
+- The 30 s reel after every carousel. A reel takes as long as a whole carousel, so it is made only
+  when the owner asks for it from the ready window (`REELS=1` in `server/.env` makes one every time).
 - Other formats: stories, ads, single posts.
 - Editing the owner's video clips.
 - Reading pages beyond the URL given.

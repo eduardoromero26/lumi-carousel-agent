@@ -1234,9 +1234,9 @@ class _Reading extends StatelessWidget {
               padding: const EdgeInsets.only(top: 6, bottom: 8),
               child: Text('${title.tr} (${images.where((a) => (a['kind'] ?? 'other') == kind).length})', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
             ),
-            Wrap(spacing: 8, runSpacing: 8, children: [
+            Wrap(spacing: 12, runSpacing: 12, children: [
               for (final a in images.where((a) => (a['kind'] ?? 'other') == kind))
-                _AssetTile(asset: a, chosen: chosen.contains('${a['id']}'), dimmed: chosen.isNotEmpty && !chosen.contains('${a['id']}'), onTap: () => onChoose('${a['id']}')),
+                _AssetTile(asset: a, chosen: chosen.contains('${a['id']}'), onTap: () => onChoose('${a['id']}')),
             ]),
             const SizedBox(height: 10),
           ],
@@ -1246,23 +1246,23 @@ class _Reading extends StatelessWidget {
 }
 
 class _AssetTile extends StatelessWidget {
-  const _AssetTile({required this.asset, required this.chosen, required this.dimmed, required this.onTap});
+  const _AssetTile({required this.asset, required this.chosen, required this.onTap});
   final Map asset;
   final bool chosen;
-  final bool dimmed;
   final VoidCallback onTap;
 
+  // Every image in full color: the picked ones carry the green border and the Use badge.
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: 124,
-        height: 124,
+        width: 180,
+        height: 225,
         child: Stack(fit: StackFit.expand, children: [
-          GestureDetector(
-            onTap: onTap,
-            child: Opacity(
-              opacity: dimmed ? 0.4 : 1,
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: onTap,
               child: Container(
-                decoration: BoxDecoration(borderRadius: BorderRadius.circular(9), border: Border.all(color: chosen ? _C.ok : _C.line, width: chosen ? 3 : 1)),
+                decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: chosen ? _C.ok : _C.line, width: chosen ? 3 : 1)),
                 clipBehavior: Clip.antiAlias,
                 child: ColoredBox(color: _G.canvas, child: _Net('${asset['url']}', fit: BoxFit.cover)),
               ),
@@ -1270,10 +1270,10 @@ class _AssetTile extends StatelessWidget {
           ),
           if (chosen)
             Positioned(
-              right: 5,
-              top: 5,
+              right: 8,
+              top: 8,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(color: _C.ok, borderRadius: BorderRadius.circular(12)),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
                   const Icon(Icons.check_rounded, size: 12, color: Colors.white),
@@ -1284,13 +1284,13 @@ class _AssetTile extends StatelessWidget {
             ),
           // What the AI read in it, big.
           Positioned(
-            left: 5,
-            top: 5,
+            left: 8,
+            top: 8,
             child: InkWell(
               onTap: () => showAsset(context, asset, !chosen, onTap),
               child: Container(
-                width: 26,
-                height: 26,
+                width: 30,
+                height: 30,
                 decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.9), shape: BoxShape.circle, border: Border.all(color: _C.line)),
                 child: const Icon(Icons.zoom_in_rounded, size: 16, color: _C.text),
               ),

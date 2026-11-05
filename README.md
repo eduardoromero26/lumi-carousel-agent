@@ -1,12 +1,28 @@
 # Lumi · carousel agent
 
-**A marketing agency run by agents, for businesses: give it a website and a crew of agents on Meta's models turns it into an on-brand Instagram/Facebook carousel, designed in real layers, checked by its own critic and ready to post.**
+**The professional alternative to AI image generators, for businesses that care about every detail.**
 
-A small business that can't pay an agency gives its website and a language. Nothing else: the run is automatic. The agents work the way an agency's production team does: they read the brand, plan with the real material there is, pick a design from the agency's gallery, draw it, check their own work, take the owner's revisions and deliver.
+AI image generators invent what a business sells: the wrong product, faces that aren't theirs, text nobody can read. Lumi doesn't generate the image. A crew of agents on Meta's models makes the decisions a designer would and edits the business's real photos live, layer by layer, into an on-brand Instagram/Facebook carousel, checked by its own critic and ready to post.
+
+The business gives its website and a language. Nothing else: the run is automatic. The agents work the way an agency's production team does: they read the brand, plan with the real material there is, pick a design from the agency's gallery, draw it, check their own work, take the owner's revisions and deliver.
 
 The agents don't generate the slides as images. They use the business's **real photos and logo**, find the subject with **SAM 3.1** so it is never cut or covered, and build every slide as real layers in **GIMP**. Code measures what a model can't be trusted with (geometry, contrast, time), and models judge what code can't (brand, taste, meaning).
 
 Built in nine days for the **Meta Global AI Developer Hackathon 2026**.
+
+## See it
+
+**Create**: the business gives a website and the language of the slides. Behind it, carousels the agents made for other businesses.
+
+![Create: a website and a language are all the business gives](docs/screenshots/home.png)
+
+**Live**: the run as it happens. The director's plan uses only the website's real photos, and the six agents talk in the team chat.
+
+![The director's plan, the website's photos and the agents' team chat](docs/screenshots/live.png)
+
+**Review**: the slide in GIMP with its layers. The critic rejects it (4/10: the logo is unreadable, the photo isn't the product, the bed is cut off) and sends it to the fixer; the carousel only ships when the critic approves.
+
+![The critic rejects a slide with its reasons and sends it to the fixer](docs/screenshots/review.png)
 
 ## The flow
 
